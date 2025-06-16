@@ -375,7 +375,7 @@ async function showTaskDefinitionModal(interaction, userId, tileNumber) {
     .setCustomId('image_url')
     .setLabel('Image URL (optional)')
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder('https://example.com/image.png')
+    .setPlaceholder('https://example.com/image.png or upload file after submitting')
     .setRequired(false)
     .setMaxLength(500);
 
@@ -418,6 +418,12 @@ export async function handleTaskModal(interaction) {
     imageUrl: imageUrl || null
   });
 
+  // Set up image upload waiting for this tile
+  if (!gameData.awaitingImageUpload) {
+    gameData.awaitingImageUpload = new Map();
+  }
+  gameData.awaitingImageUpload.set(tileNum.toString(), true);
+
   if (tileNum < 100) {
     // Continue to next tile
     gameData.currentTaskTile = tileNum + 1;
@@ -425,7 +431,7 @@ export async function handleTaskModal(interaction) {
 
     const embed = new EmbedBuilder()
       .setTitle(`✅ Task ${tileNum} Saved`)
-      .setDescription(`**Task:** ${taskDescription}${imageUrl ? `\n**Image:** ${imageUrl}` : ''}`)
+      .setDescription(`**Task:** ${taskDescription}${imageUrl ? `\n**Image URL:** ${imageUrl}` : ''}\n\n💡 **Tip:** You can now upload an image file for this tile by sending it as a message in this channel.`)
       .addFields({ name: 'Progress', value: `${tileNum}/100 tasks defined` })
       .setColor('#00ff00');
 
@@ -452,7 +458,7 @@ export async function handleTaskModal(interaction) {
     
     const embed = new EmbedBuilder()
       .setTitle('🎉 All Tasks Defined!')
-      .setDescription('All 100 tile tasks have been configured.')
+      .setDescription('All 100 tile tasks have been configured.\n\n💡 **Tip:** You can still upload images for any tile by sending image files in this channel.')
       .addFields({ name: 'Progress', value: '100/100 tasks defined ✅' })
       .setColor('#00ff00');
 
@@ -643,4 +649,53 @@ export async function handleFinalizeGame(interaction) {
     console.error('Error finalizing game:', error);
     await interaction.editReply({ content: 'Failed to create the game. Please try again later.', embeds: [], components: [] });
   }
+}
+
+export async function handleImageUpload(message, tileNumber, userId) {
+  const gameData = tempGameData.get(userId);
+  if (!gameData || !gameData.awaitingImageUpload?.get(tileNumber.toString())) {
+    return; // Not waiting for upload or session expired
+  }
+
+  if (message.attachments.size === 0) {
+    await message.reply('Please attach an image file to your message.');
+    return;
+  }
+
+  const attachment = message.attachments.first();
+  
+  // Check if it's an image
+  const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  if (!validImageTypes.includes(attachment.contentType)) {
+    await message.reply('Please upload a valid image file (JPG, PNG, GIF, or WebP).');
+    return;
+  }
+
+  // Check file size (Discord limit is 8MB for most servers)
+  if (attachment.size > 8 * 1024 * 1024) {
+    await message.reply('Image file is too large. Please upload an image smaller than 8MB.');
+    return;
+  }
+
+  // Update the task with the uploaded image
+  const taskData = gameData.tileTasks.get(tileNumber.toString()) || {};
+  taskData.uploadedImageUrl = attachment.url;
+  taskData.uploadedImageName = attachment.name;
+  gameData.tileTasks.set(tileNumber.toString(), taskData);
+
+  // Remove from awaiting upload
+  gameData.awaitingImageUpload.delete(tileNumber.toString());
+  tempGameData.set(userId, gameData);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`✅ Image Added to Tile ${tileNumber}`)
+    .setDescription(`**Task:** ${taskData.description || 'No description'}`)
+    .addFields(
+      { name: '📁 Uploaded Image', value: attachment.name },
+      { name: '🔗 Image URL (from form)', value: taskData.imageUrl || 'None provided' }
+    )
+    .setImage(attachment.url)
+    .setColor('#00ff00');
+
+  await message.reply({ embeds: [embed] });
 }

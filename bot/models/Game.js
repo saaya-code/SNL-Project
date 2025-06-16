@@ -4,7 +4,7 @@ const GameSchema = new mongoose.Schema({
   gameId: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   status: { type: String, default: 'pending' },
-  tileTasks: { type: Map, of: Object, default: new Map() },
+  tileTasks: { type: Map, of: Object, default: new Map() }, // Now stores: { description, imageUrl, uploadedImageUrl, uploadedImageName }
   snakes: { type: Map, of: Number, default: new Map() },
   ladders: { type: Map, of: Number, default: new Map() },
   participants: { type: Array, default: [] },

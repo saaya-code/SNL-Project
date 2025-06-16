@@ -56,7 +56,9 @@ import {
   handleNextTask,
   handleBulkDefine,
   handleBulkTasksModal,
-  handleFinalizeGame
+  handleFinalizeGame,
+  handleImageUpload,
+  tempGameData
 } from './helpers/gameCreationHandlers.js';
 
 client.on(Events.InteractionCreate, async interaction => {
@@ -133,6 +135,37 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         } catch (followUpError) {
             console.error('Failed to send error response:', followUpError);
+        }
+    }
+});
+
+// Handle message events for image uploads
+client.on(Events.MessageCreate, async message => {
+    // Ignore bot messages
+    if (message.author.bot) return;
+    
+    // Check if this user is waiting for an image upload
+    const gameData = tempGameData.get(message.author.id);
+    if (!gameData || !gameData.awaitingImageUpload) return;
+    
+    // Check if user has attachments and is waiting for upload
+    if (message.attachments.size > 0) {
+        // Find the most recent tile they're uploading for (highest tile number waiting)
+        let latestTile = null;
+        let latestTileNum = 0;
+        
+        for (const [tileNumber, isWaiting] of gameData.awaitingImageUpload.entries()) {
+            if (isWaiting) {
+                const tileNum = parseInt(tileNumber);
+                if (tileNum > latestTileNum) {
+                    latestTileNum = tileNum;
+                    latestTile = tileNumber;
+                }
+            }
+        }
+        
+        if (latestTile) {
+            await handleImageUpload(message, latestTile, message.author.id);
         }
     }
 });
