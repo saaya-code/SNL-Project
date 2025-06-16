@@ -1,0 +1,14 @@
+{
+  "name": "@snl-project/shared-models",
+  "version": "1.0.0",
+  "description": "Shared MongoDB models for the SNL project",
+  "main": "index.js",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./models/*": "./models/*.js"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.0"
+  }
+}

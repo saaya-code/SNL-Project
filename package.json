@@ -1,0 +1,9 @@
+{
+  "name": "snl-project",
+  "private": true,
+  "workspaces": [
+    "api",
+    "bot",
+    "packages/*"
+  ]
+}
