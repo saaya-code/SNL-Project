@@ -61,6 +61,24 @@ import {
   tempGameData
 } from './helpers/gameCreationHandlers.js';
 
+// Import registration handlers
+import {
+  handleJoinGame,
+  handleApproveApplication,
+  handleRejectApplication,
+  handleRequestInfo
+} from './helpers/registrationHandlers.js';
+
+// Import application management handlers
+import {
+  handleSelectGameAccept,
+  handleSelectGameDecline,
+  handleSelectParticipantAccept,
+  handleSelectParticipantDecline,
+  handleConfirmAccept,
+  handleConfirmDecline
+} from './helpers/applicationManagementHandlers.js';
+
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isCommand()) {
@@ -80,8 +98,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 customId.startsWith('set_deadline_') ||
                 customId.startsWith('define_tasks_') ||
                 customId.startsWith('next_task_') ||
-                customId.startsWith('bulk_define_')) {
-                // These handlers will show modals, so don't defer
+                customId.startsWith('bulk_define_') ||
+                customId.startsWith('join_game_')) {
+                // These handlers will show modals or create channels, so don't defer
             } else {
                 await interaction.deferUpdate(); // Defer for other buttons
             }
@@ -102,6 +121,33 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleBulkDefine(interaction);
             } else if (customId.startsWith('finalize_game_')) {
                 await handleFinalizeGame(interaction);
+            } else if (customId.startsWith('join_game_')) {
+                await handleJoinGame(interaction);
+            } else if (customId.startsWith('approve_application_')) {
+                await handleApproveApplication(interaction);
+            } else if (customId.startsWith('reject_application_')) {
+                await handleRejectApplication(interaction);
+            } else if (customId.startsWith('request_info_')) {
+                await handleRequestInfo(interaction);
+            }
+        } else if (interaction.isStringSelectMenu()) {
+            const customId = interaction.customId;
+
+            // Don't defer select menus that show modals
+            if (customId === 'select_participant_accept' || customId === 'select_participant_decline') {
+                // These will show modals, so don't defer
+            } else {
+                await interaction.deferUpdate(); // Defer other select menu interactions
+            }
+
+            if (customId === 'select_game_accept') {
+                await handleSelectGameAccept(interaction);
+            } else if (customId === 'select_game_decline') {
+                await handleSelectGameDecline(interaction);
+            } else if (customId === 'select_participant_accept') {
+                await handleSelectParticipantAccept(interaction);
+            } else if (customId === 'select_participant_decline') {
+                await handleSelectParticipantDecline(interaction);
             }
         } else if (interaction.isModalSubmit()) {
             await interaction.deferUpdate(); // Defer the update immediately
@@ -117,6 +163,10 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleTaskModal(interaction);
             } else if (customId.startsWith('bulk_tasks_modal_')) {
                 await handleBulkTasksModal(interaction);
+            } else if (customId.startsWith('confirm_accept_')) {
+                await handleConfirmAccept(interaction);
+            } else if (customId.startsWith('confirm_decline_')) {
+                await handleConfirmDecline(interaction);
             }
         }
     } catch(err) {
