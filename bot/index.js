@@ -79,6 +79,11 @@ import {
   handleConfirmDecline
 } from './helpers/applicationManagementHandlers.js';
 
+// Import game start handlers
+import {
+  handleSelectGameToStart
+} from './helpers/gameStartHandlers.js';
+
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isCommand()) {
@@ -148,6 +153,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleSelectParticipantAccept(interaction);
             } else if (customId === 'select_participant_decline') {
                 await handleSelectParticipantDecline(interaction);
+            } else if (customId === 'select_game_to_start') {
+                await handleSelectGameToStart(interaction);
             }
         } else if (interaction.isModalSubmit()) {
             await interaction.deferUpdate(); // Defer the update immediately

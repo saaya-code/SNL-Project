@@ -3,7 +3,7 @@ import Game from '../models/Game.js';
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('snlstart')
+    .setName('snlstartregistration')
     .setDescription('Start team registration for a Snakes & Ladders game (Admin only)')
     .addStringOption(option =>
       option.setName('gameid')
