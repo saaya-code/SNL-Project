@@ -5,11 +5,6 @@ export default {
   data: new SlashCommandBuilder()
     .setName('snlstartregistration')
     .setDescription('Start team registration for a Snakes & Ladders game (Admin only)')
-    .addStringOption(option =>
-      option.setName('gameid')
-        .setDescription('The Game ID to start registration for')
-        .setRequired(true)
-    )
     .addIntegerOption(option =>
       option.setName('teamsize')
         .setDescription('Maximum team size (1-10)')
@@ -20,7 +15,6 @@ export default {
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
-    const gameId = interaction.options.getString('gameid');
     const teamSize = interaction.options.getInteger('teamsize');
 
     // Check if user has admin permissions
@@ -32,22 +26,25 @@ export default {
     }
 
     try {
-      // Find the game
-      const game = await Game.findOne({ gameId: gameId });
-      if (!game) {
+      // Find all pending games
+      const pendingGames = await Game.find({ status: 'pending' });
+      
+      if (pendingGames.length === 0) {
         return await interaction.editReply({ 
-          content: `❌ Game with ID \`${gameId}\` not found.`,
+          content: '❌ No pending games found. Please create a game first using `/snlcreate`.',
           flags: 64 
         });
       }
 
-      // Check if game is in pending status
-      if (game.status !== 'pending') {
+      if (pendingGames.length > 1) {
         return await interaction.editReply({ 
-          content: `❌ Game "${game.name}" is not in pending status. Current status: ${game.status}`,
+          content: `❌ Multiple pending games found. Please ensure only one game is pending at a time. Found: ${pendingGames.map(g => `**${g.name}**`).join(', ')}`,
           flags: 64 
         });
       }
+
+      // Use the single pending game
+      const game = pendingGames[0];
 
       // Update game status to registration
       game.status = 'registration';
@@ -59,7 +56,7 @@ export default {
         .setTitle(`🎮 ${game.name} - Team Registration Open!`)
         .setDescription(`Registration is now open for **${game.name}**!\n\nClick the button below to apply for this game.`)
         .addFields(
-          { name: '🎯 Game ID', value: gameId, inline: true },
+          { name: '🎯 Game ID', value: game.gameId, inline: true },
           { name: '👥 Max Team Size', value: teamSize.toString(), inline: true },
           { name: '⏰ Application Deadline', value: game.applicationDeadline ? `<t:${Math.floor(game.applicationDeadline.getTime() / 1000)}:F>` : 'No deadline set', inline: true },
           { name: '🐍 Snakes', value: game.snakeCount?.toString() || '0', inline: true },
@@ -75,7 +72,7 @@ export default {
       const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
-            .setCustomId(`join_game_${gameId}`)
+            .setCustomId(`join_game_${game.gameId}`)
             .setLabel('🎮 Join Game')
             .setStyle(ButtonStyle.Success)
         );

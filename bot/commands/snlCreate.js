@@ -17,6 +17,23 @@ export default {
 
   async execute(interaction) {
     const name = interaction.options.getString('name');
+    
+    // Check if there's already a pending game
+    const existingPendingGame = await Game.findOne({ status: 'pending' });
+    if (existingPendingGame) {
+      return await interaction.editReply({ 
+        content: `❌ There is already a pending game: **${existingPendingGame.name}** (ID: ${existingPendingGame.gameId}). Please start registration for this game or clean it up before creating a new one.`
+      });
+    }
+
+    // Check if there's already an active game
+    const existingActiveGame = await Game.findOne({ status: 'active' });
+    if (existingActiveGame) {
+      return await interaction.editReply({ 
+        content: `❌ There is already an active game: **${existingActiveGame.name}**. Please wait for it to complete before creating a new game.`
+      });
+    }
+    
     const gameId = uuidv4();
     
     // Store initial game data
@@ -24,6 +41,7 @@ export default {
       gameId,
       name,
       createdBy: interaction.user.id,
+      channelId: interaction.channelId,
       step: 'initial'
     });
 

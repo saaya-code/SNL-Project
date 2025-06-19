@@ -135,17 +135,9 @@ export async function handleJoinGame(interaction) {
       .setFooter({ text: `Application ID: ${applicationId}` })
       .setTimestamp();
 
-    // Create action buttons for moderators
+    // Create action button for moderators
     const moderatorRow = new ActionRowBuilder()
       .addComponents(
-        new ButtonBuilder()
-          .setCustomId(`approve_application_${applicationId}`)
-          .setLabel('✅ Approve')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`reject_application_${applicationId}`)
-          .setLabel('❌ Reject')
-          .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId(`request_info_${applicationId}`)
           .setLabel('💬 Request Info')
@@ -182,124 +174,6 @@ export async function handleJoinGame(interaction) {
     } catch (followUpError) {
       console.error('Failed to send error response:', followUpError);
     }
-  }
-}
-
-export async function handleApproveApplication(interaction) {
-  const applicationId = interaction.customId.split('_').pop();
-  
-  // Check if user has moderator permissions
-  if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator) && 
-      !interaction.member.roles.cache.some(role => 
-        role.name.toLowerCase().includes('moderator') || 
-        role.name.toLowerCase().includes('admin')
-      )) {
-    return await interaction.editReply({ 
-      content: '❌ You do not have permission to approve applications.'
-    });
-  }
-
-  try {
-    const application = await Application.findOne({ applicationId: applicationId });
-    if (!application) {
-      return await interaction.editReply({ 
-        content: '❌ Application not found.'
-      });
-    }
-
-    if (application.status !== 'pending') {
-      return await interaction.editReply({ 
-        content: `❌ Application has already been ${application.status}.`
-      });
-    }
-
-    // Update application status
-    application.status = 'accepted';
-    application.reviewedAt = new Date();
-    application.reviewedBy = interaction.user.id;
-    await application.save();
-
-    // Create approval embed
-    const approvalEmbed = new EmbedBuilder()
-      .setTitle('🎉 Application Approved!')
-      .setDescription(`Congratulations! Your application for **${(await Game.findOne({ gameId: application.gameId }))?.name || 'the game'}** has been **approved**!`)
-      .addFields(
-        { name: '✅ Status', value: 'Accepted', inline: true },
-        { name: '👤 Reviewed By', value: `${interaction.user}`, inline: true },
-        { name: '⏰ Reviewed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
-        { name: '📋 Next Steps', value: '• You will be added to a team\n• Wait for further instructions\n• Game details will be shared when ready' }
-      )
-      .setColor('#00ff00')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [approvalEmbed] });
-
-    console.log(`Application approved: ${application.username} for game ${application.gameId} by ${interaction.user.username}`);
-
-  } catch (error) {
-    console.error('Error approving application:', error);
-    await interaction.editReply({ 
-      content: '❌ Failed to approve application. Please try again later.'
-    });
-  }
-}
-
-export async function handleRejectApplication(interaction) {
-  const applicationId = interaction.customId.split('_').pop();
-  
-  // Check if user has moderator permissions
-  if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator) && 
-      !interaction.member.roles.cache.some(role => 
-        role.name.toLowerCase().includes('moderator') || 
-        role.name.toLowerCase().includes('admin')
-      )) {
-    return await interaction.editReply({ 
-      content: '❌ You do not have permission to reject applications.'
-    });
-  }
-
-  try {
-    const application = await Application.findOne({ applicationId: applicationId });
-    if (!application) {
-      return await interaction.editReply({ 
-        content: '❌ Application not found.'
-      });
-    }
-
-    if (application.status !== 'pending') {
-      return await interaction.editReply({ 
-        content: `❌ Application has already been ${application.status}.`
-      });
-    }
-
-    // Update application status
-    application.status = 'rejected';
-    application.reviewedAt = new Date();
-    application.reviewedBy = interaction.user.id;
-    await application.save();
-
-    // Create rejection embed
-    const rejectionEmbed = new EmbedBuilder()
-      .setTitle('❌ Application Rejected')
-      .setDescription(`Your application for **${(await Game.findOne({ gameId: application.gameId }))?.name || 'the game'}** has been **rejected**.`)
-      .addFields(
-        { name: '❌ Status', value: 'Rejected', inline: true },
-        { name: '👤 Reviewed By', value: `${interaction.user}`, inline: true },
-        { name: '⏰ Reviewed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
-        { name: '💭 Note', value: 'You may ask the moderators for feedback or apply for future games.' }
-      )
-      .setColor('#ff0000')
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [rejectionEmbed] });
-
-    console.log(`Application rejected: ${application.username} for game ${application.gameId} by ${interaction.user.username}`);
-
-  } catch (error) {
-    console.error('Error rejecting application:', error);
-    await interaction.editReply({ 
-      content: '❌ Failed to reject application. Please try again later.'
-    });
   }
 }
 

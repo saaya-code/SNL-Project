@@ -9,30 +9,73 @@ export function generateRandomSnakesAndLadders(snakeCount, ladderCount) {
   const ladders = new Map();
   const usedTiles = new Set();
 
-  // Generate snakes (higher to lower tiles)
+  // Helper function to get row number (0-9, where 0 is bottom row)
+  const getRow = (tile) => Math.floor((tile - 1) / 10);
+
+  // Generate snakes (higher to lower tiles) - must span at least one row down
   for (let i = 0; i < snakeCount; i++) {
     let head, tail;
-    do {
-      head = Math.floor(Math.random() * 90) + 10; // Tiles 10-99
-      tail = Math.floor(Math.random() * (head - 1)) + 1; // Lower than head
-    } while (usedTiles.has(head) || usedTiles.has(tail));
+    let attempts = 0;
     
-    snakes.set(head.toString(), tail);
-    usedTiles.add(head);
-    usedTiles.add(tail);
+    do {
+      head = Math.floor(Math.random() * 80) + 20; // Tiles 20-99 (start from row 2 to ensure room to go down)
+      const headRow = getRow(head);
+      const minTailRow = Math.max(0, headRow - 8); // Can go down up to 8 rows but at least 1
+      const maxTailRow = headRow - 1; // Must go down at least 1 row
+      
+      if (maxTailRow >= minTailRow) {
+        const targetRow = Math.floor(Math.random() * (maxTailRow - minTailRow + 1)) + minTailRow;
+        const minTailInRow = targetRow * 10 + 1;
+        const maxTailInRow = Math.min((targetRow + 1) * 10, head - 1);
+        
+        if (maxTailInRow >= minTailInRow) {
+          tail = Math.floor(Math.random() * (maxTailInRow - minTailInRow + 1)) + minTailInRow;
+        } else {
+          tail = minTailInRow;
+        }
+      } else {
+        continue; // Try again
+      }
+      
+      attempts++;
+    } while ((usedTiles.has(head) || usedTiles.has(tail) || getRow(head) <= getRow(tail)) && attempts < 100);
+    
+    if (attempts < 100 && getRow(head) > getRow(tail)) {
+      snakes.set(head.toString(), tail);
+      usedTiles.add(head);
+      usedTiles.add(tail);
+    }
   }
 
-  // Generate ladders (lower to higher tiles)
+  // Generate ladders (lower to higher tiles) - must span at least one row up
   for (let i = 0; i < ladderCount; i++) {
     let bottom, top;
-    do {
-      bottom = Math.floor(Math.random() * 80) + 1; // Tiles 1-80
-      top = Math.floor(Math.random() * (99 - bottom)) + bottom + 1; // Higher than bottom, max 99
-    } while (usedTiles.has(bottom) || usedTiles.has(top));
+    let attempts = 0;
     
-    ladders.set(bottom.toString(), top);
-    usedTiles.add(bottom);
-    usedTiles.add(top);
+    do {
+      bottom = Math.floor(Math.random() * 70) + 1; // Tiles 1-70 (leave room to go up)
+      const bottomRow = getRow(bottom);
+      const minTopRow = bottomRow + 1; // Must go up at least 1 row
+      const maxTopRow = Math.min(9, bottomRow + 8); // Can go up up to 8 rows but stay within board
+      
+      if (minTopRow <= maxTopRow) {
+        const targetRow = Math.floor(Math.random() * (maxTopRow - minTopRow + 1)) + minTopRow;
+        const minTopInRow = targetRow * 10 + 1;
+        const maxTopInRow = Math.min((targetRow + 1) * 10, 99);
+        
+        top = Math.floor(Math.random() * (maxTopInRow - minTopInRow + 1)) + minTopInRow;
+      } else {
+        continue; // Try again
+      }
+      
+      attempts++;
+    } while ((usedTiles.has(bottom) || usedTiles.has(top) || getRow(bottom) >= getRow(top)) && attempts < 100);
+    
+    if (attempts < 100 && getRow(bottom) < getRow(top)) {
+      ladders.set(bottom.toString(), top);
+      usedTiles.add(bottom);
+      usedTiles.add(top);
+    }
   }
 
   return { snakes, ladders };
@@ -618,6 +661,7 @@ export async function handleFinalizeGame(interaction) {
       gameId: gameData.gameId,
       name: gameData.name,
       createdBy: gameData.createdBy,
+      channelId: gameData.channelId,
       applicationDeadline: gameData.applicationDeadline,
       snakeCount: gameData.snakeCount || 0,
       ladderCount: gameData.ladderCount || 0,

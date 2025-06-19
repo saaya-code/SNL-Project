@@ -64,8 +64,6 @@ import {
 // Import registration handlers
 import {
   handleJoinGame,
-  handleApproveApplication,
-  handleRejectApplication,
   handleRequestInfo
 } from './helpers/registrationHandlers.js';
 
@@ -83,6 +81,11 @@ import {
 import {
   handleSelectGameToStart
 } from './helpers/gameStartHandlers.js';
+
+// Import cleanup handlers
+import {
+  handleSelectGameCleanup
+} from './helpers/cleanupHandlers.js';
 
 client.on(Events.InteractionCreate, async interaction => {
     try {
@@ -128,10 +131,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleFinalizeGame(interaction);
             } else if (customId.startsWith('join_game_')) {
                 await handleJoinGame(interaction);
-            } else if (customId.startsWith('approve_application_')) {
-                await handleApproveApplication(interaction);
-            } else if (customId.startsWith('reject_application_')) {
-                await handleRejectApplication(interaction);
             } else if (customId.startsWith('request_info_')) {
                 await handleRequestInfo(interaction);
             }
@@ -155,6 +154,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleSelectParticipantDecline(interaction);
             } else if (customId === 'select_game_to_start') {
                 await handleSelectGameToStart(interaction);
+            } else if (customId === 'select_game_cleanup') {
+                await handleSelectGameCleanup(interaction);
             }
         } else if (interaction.isModalSubmit()) {
             await interaction.deferUpdate(); // Defer the update immediately

@@ -93,6 +93,25 @@ export async function handleSelectGameToStart(interaction) {
     const createdTeams = [];
     const guild = interaction.guild;
 
+    // Find or create the Game Teams category
+    let gameCategory = guild.channels.cache.find(
+      channel => channel.type === ChannelType.GuildCategory && 
+      channel.name.toLowerCase() === `${game.name.toLowerCase()} - teams`
+    );
+
+    if (!gameCategory) {
+      gameCategory = await guild.channels.create({
+        name: `${game.name} - Teams`,
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone,
+            deny: [PermissionFlagsBits.ViewChannel],
+          },
+        ],
+      });
+    }
+
     for (let i = 0; i < teams.length; i++) {
       const teamMembers = teams[i];
       if (teamMembers.length === 0) continue;
@@ -104,6 +123,7 @@ export async function handleSelectGameToStart(interaction) {
       const teamChannel = await guild.channels.create({
         name: `${game.name.toLowerCase().replace(/\s+/g, '-')}-${teamName.toLowerCase().replace(/\s+/g, '-')}`,
         type: ChannelType.GuildText,
+        parent: gameCategory.id,
         permissionOverwrites: [
           {
             id: guild.roles.everyone,
