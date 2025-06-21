@@ -2,11 +2,12 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBu
 import Game from '../models/Game.js';
 import Team from '../models/Team.js';
 import Application from '../models/Application.js';
+import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlcleanup')
-    .setDescription('Clean up channels and data from completed SNL games (Admin only)')
+    .setDescription('Clean up channels and data from completed SNL games (Moderator only)')
     .addStringOption(option =>
       option.setName('action')
         .setDescription('What to clean up')
@@ -17,15 +18,12 @@ export default {
           { name: 'Clean application channels only', value: 'applications' },
           { name: 'Clean team channels only', value: 'teams' }
         )
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    ),
 
   async execute(interaction) {
-    // Check if user has admin permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return await interaction.editReply({ 
-        content: '❌ You need Administrator permissions to clean up game data.'
-      });
+    // Check moderator permissions
+    if (!(await requireModeratorPermissions(interaction))) {
+      return;
     }
 
     const action = interaction.options.getString('action');

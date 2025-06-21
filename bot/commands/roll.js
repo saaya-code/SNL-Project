@@ -138,7 +138,7 @@ export default {
       // Fetch game board image from API
       let boardAttachment = null;
       try {
-        const API_URL = process.env.API_URL || 'http://localhost:3000';
+        const API_URL = process.env.API_URL || 'http://localhost:5000';
         const response = await axios.get(`${API_URL}/api/games/${game.gameId}/board`, {
           responseType: 'arraybuffer',
           timeout: 10000 // 10 second timeout

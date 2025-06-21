@@ -87,6 +87,11 @@ import {
   handleSelectGameCleanup
 } from './helpers/cleanupHandlers.js';
 
+// Import reset handlers
+import {
+  handleResetConfirmation
+} from './helpers/resetHandlers.js';
+
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isCommand()) {
@@ -133,6 +138,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleJoinGame(interaction);
             } else if (customId.startsWith('request_info_')) {
                 await handleRequestInfo(interaction);
+            } else if (customId.startsWith('confirm_reset_') || customId === 'cancel_reset') {
+                await handleResetConfirmation(interaction);
             }
         } else if (interaction.isStringSelectMenu()) {
             const customId = interaction.customId;

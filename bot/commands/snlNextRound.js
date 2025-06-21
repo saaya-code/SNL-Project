@@ -1,26 +1,24 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import Team from '../models/Team.js';
 import Game from '../models/Game.js';
+import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlnextround')
-    .setDescription('Start the next round - allows all teams to roll again (Admin only)')
+    .setDescription('Start the next round - allows all teams to roll again (Moderator only)')
     .addStringOption(option =>
       option.setName('gameid')
         .setDescription('The Game ID to start next round for')
         .setRequired(true)
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    ),
 
   async execute(interaction) {
     const gameId = interaction.options.getString('gameid');
 
-    // Check if user has admin permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return await interaction.editReply({ 
-        content: '❌ You need Administrator permissions to manage game rounds.'
-      });
+    // Check moderator permissions
+    if (!(await requireModeratorPermissions(interaction))) {
+      return;
     }
 
     try {

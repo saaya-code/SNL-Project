@@ -2,13 +2,14 @@ import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Embe
 import { v4 as uuidv4 } from 'uuid';
 import Game from '../models/Game.js';
 import { tempGameData } from '../helpers/gameCreationHandlers.js';
+import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
 
 
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlcreate')
-    .setDescription('Initialize a new Snakes & Ladders game')
+    .setDescription('Initialize a new Snakes & Ladders game (Moderator only)')
     .addStringOption(option =>
       option.setName('name')
         .setDescription('Name of the game')
@@ -16,6 +17,11 @@ export default {
     ),
 
   async execute(interaction) {
+    // Check moderator permissions
+    if (!(await requireModeratorPermissions(interaction))) {
+      return;
+    }
+
     const name = interaction.options.getString('name');
     
     // Check if there's already a pending game

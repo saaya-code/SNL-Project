@@ -1,19 +1,17 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits } from 'discord.js';
 import Game from '../models/Game.js';
 import Application from '../models/Application.js';
+import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snldecline')
-    .setDescription('Decline pending applications for SNL games (Admin only)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription('Decline pending applications for SNL games (Moderator only)'),
 
   async execute(interaction) {
-    // Check if user has admin permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return await interaction.editReply({ 
-        content: '❌ You need Administrator permissions to manage applications.'
-      });
+    // Check moderator permissions
+    if (!(await requireModeratorPermissions(interaction))) {
+      return;
     }
 
     try {

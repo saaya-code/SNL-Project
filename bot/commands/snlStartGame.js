@@ -1,19 +1,17 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits } from 'discord.js';
 import Game from '../models/Game.js';
 import Application from '../models/Application.js';
+import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlstart')
-    .setDescription('Start a Snakes & Ladders game with accepted participants (Admin only)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDescription('Start a Snakes & Ladders game with accepted participants (Moderator only)'),
 
   async execute(interaction) {
-    // Check if user has admin permissions
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return await interaction.editReply({ 
-        content: '❌ You need Administrator permissions to start games.'
-      });
+    // Check moderator permissions
+    if (!(await requireModeratorPermissions(interaction))) {
+      return;
     }
 
     try {

@@ -1,12 +1,13 @@
 import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle } from 'discord.js';
 import Game from '../models/Game.js';
 import Application from '../models/Application.js';
+import { hasModeratorPermissions } from './moderatorHelpers.js';
 
 // Handle game selection for accepting applications
 export async function handleSelectGameAccept(interaction) {
-  if (!interaction.member.permissions.has('Administrator')) {
+  if (!(await hasModeratorPermissions(interaction))) {
     return await interaction.editReply({ 
-      content: '❌ You need Administrator permissions to manage applications.'
+      content: '❌ You need Administrator permissions or the designated moderator role to manage applications.'
     });
   }
 
@@ -74,9 +75,9 @@ export async function handleSelectGameAccept(interaction) {
 
 // Handle game selection for declining applications
 export async function handleSelectGameDecline(interaction) {
-  if (!interaction.member.permissions.has('Administrator')) {
+  if (!(await hasModeratorPermissions(interaction))) {
     return await interaction.editReply({ 
-      content: '❌ You need Administrator permissions to manage applications.'
+      content: '❌ You need Administrator permissions or the designated moderator role to manage applications.'
     });
   }
 
