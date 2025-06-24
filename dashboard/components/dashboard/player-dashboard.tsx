@@ -36,7 +36,7 @@ export default function PlayerDashboard({
   const myTeams = teams.filter(team => 
     team.members.some((member: any) => member.userId === user.id) ||
     team.leader.userId === user.id ||
-    team.coLeader.userId === user.id
+    (team.coLeader && team.coLeader.userId === user.id)
   )
   
   const myGames = games.filter(game => 
@@ -105,9 +105,16 @@ export default function PlayerDashboard({
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Player Dashboard
-          </h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold text-white">
+              Player Dashboard
+            </h1>
+            {process.env.DEV_MODE === 'true' && (
+              <span className="bg-green-600 text-green-100 px-2 py-1 rounded-md text-sm font-medium">
+                🎮 DEV: Player View
+              </span>
+            )}
+          </div>
           <p className="text-gray-300">
             Welcome back, {user.name}! Ready to play some Snakes & Ladders?
           </p>
@@ -198,9 +205,11 @@ export default function PlayerDashboard({
                               <span className="bg-yellow-600 text-white px-2 py-1 rounded text-xs">
                                 👑 {myTeam.leader.displayName}
                               </span>
-                              <span className="bg-orange-600 text-white px-2 py-1 rounded text-xs">
-                                🥈 {myTeam.coLeader.displayName}
-                              </span>
+                              {myTeam.coLeader && (
+                                <span className="bg-orange-600 text-white px-2 py-1 rounded text-xs">
+                                  🥈 {myTeam.coLeader.displayName}
+                                </span>
+                              )}
                               {myTeam.members.map((member: any, index: number) => (
                                 <span key={index} className="bg-gray-600 text-white px-2 py-1 rounded text-xs">
                                   {member.displayName}

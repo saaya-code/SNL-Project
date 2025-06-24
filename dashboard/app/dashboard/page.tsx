@@ -8,6 +8,7 @@ import { gamesApi, teamsApi, applicationsApi } from '@/lib/api'
 import AdminDashboard from '@/components/dashboard/admin-dashboard'
 import PlayerDashboard from '@/components/dashboard/player-dashboard'
 import LoadingSpinner from '@/components/ui/loading-spinner'
+import DevModeSwitcher from '@/components/ui/dev-mode-switcher'
 
 export default function DashboardPage() {
   const { data: session, status } = useSession()
@@ -17,6 +18,23 @@ export default function DashboardPage() {
   const [teams, setTeams] = useState<Team[]>([])
   const [applications, setApplications] = useState<Application[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [devModeView, setDevModeView] = useState<'admin' | 'player' | null>(null)
+
+  // Load dev mode view preference from localStorage
+  useEffect(() => {
+    if (process.env.DEV_MODE === 'true') {
+      const savedView = localStorage.getItem('devModeView') as 'admin' | 'player' | null
+      if (savedView) {
+        setDevModeView(savedView)
+      }
+    }
+  }, [])
+
+  // Save dev mode view preference to localStorage
+  const handleDevModeViewChange = (view: 'admin' | 'player') => {
+    setDevModeView(view)
+    localStorage.setItem('devModeView', view)
+  }
 
   useEffect(() => {
     if (status === 'loading') return
@@ -81,10 +99,22 @@ export default function DashboardPage() {
   }
 
   const isAdmin = (session?.user as any)?.isAdmin || (session?.user as any)?.isModerator
+  const isDev = process.env.DEV_MODE === 'true'
+  
+  // In dev mode, use the switcher's preference, otherwise use actual admin status
+  const showAdminView = isDev && devModeView !== null ? devModeView === 'admin' : isAdmin
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-900 via-blue-900 to-purple-900">
-      {isAdmin ? (
+      {/* Dev Mode Switcher */}
+      {isDev && (
+        <DevModeSwitcher
+          currentView={devModeView !== null ? devModeView : (isAdmin ? 'admin' : 'player')}
+          onViewChange={handleDevModeViewChange}
+        />
+      )}
+      
+      {showAdminView ? (
         <AdminDashboard
           games={games}
           teams={teams}

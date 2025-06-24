@@ -48,7 +48,7 @@ export interface Team {
   teamName: string
   members: TeamMember[]
   leader: TeamMember
-  coLeader: TeamMember
+  coLeader?: TeamMember | null
   channelId: string
   currentPosition: number
   canRoll: boolean

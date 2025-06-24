@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Game, Team, Application, User } from '@/types/index'
 import { 
   Users, 
@@ -32,6 +33,7 @@ export default function AdminDashboard({
   user, 
   onRefresh 
 }: AdminDashboardProps) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications'>('games')
   const [loading, setLoading] = useState(false)
 
@@ -90,29 +92,8 @@ export default function AdminDashboard({
     }
   }
 
-  const createNewGame = async () => {
-    try {
-      setLoading(true)
-      await gamesApi.create({
-        name: `Game ${games.length + 1}`,
-        status: 'pending',
-        maxTeamSize: 4,
-        snakeCount: 0,
-        ladderCount: 0,
-        participants: [],
-        createdBy: user.id || '',
-        tileTasks: {},
-        snakes: {},
-        ladders: {}
-      })
-      toast.success('New game created!')
-      onRefresh()
-    } catch (error) {
-      console.error('Failed to create game:', error)
-      toast.error('Failed to create game. Please try again.')
-    } finally {
-      setLoading(false)
-    }
+  const createNewGame = () => {
+    router.push('/create-game')
   }
 
   const tabConfig = {
@@ -126,9 +107,16 @@ export default function AdminDashboard({
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Admin Dashboard
-          </h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold text-white">
+              Admin Dashboard
+            </h1>
+            {process.env.DEV_MODE === 'true' && (
+              <span className="bg-yellow-600 text-yellow-100 px-2 py-1 rounded-md text-sm font-medium">
+                👑 DEV: Admin View
+              </span>
+            )}
+          </div>
           <p className="text-gray-300">
             Welcome back, {user.name}! Manage your Snakes & Ladders games.
           </p>
@@ -168,8 +156,7 @@ export default function AdminDashboard({
                 <h2 className="text-2xl font-bold text-white">Games Management</h2>
                 <button
                   onClick={createNewGame}
-                  disabled={loading}
-                  className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg flex items-center"
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Create Game

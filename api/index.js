@@ -176,7 +176,17 @@ app.get('/api/users/:userId/applications', async (req, res) => {
 // POST endpoints for game actions
 app.post('/api/games', async (req, res) => {
   try {
-    const { name, maxTeamSize = 1, createdBy } = req.body;
+    const { 
+      name, 
+      maxTeamSize = 1, 
+      createdBy = 'dashboard', 
+      applicationDeadline,
+      tileTasks = {},
+      snakes = {},
+      ladders = {},
+      snakeCount = 0,
+      ladderCount = 0
+    } = req.body;
     
     const gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
     
@@ -185,19 +195,21 @@ app.post('/api/games', async (req, res) => {
       name,
       maxTeamSize,
       createdBy,
+      applicationDeadline,
       channelId: 'dashboard-created',
       status: 'pending',
-      tileTasks: new Map(),
-      snakes: new Map(),
-      ladders: new Map(),
+      tileTasks: new Map(Object.entries(tileTasks)),
+      snakes: new Map(Object.entries(snakes).map(([k, v]) => [k, Number(v)])),
+      ladders: new Map(Object.entries(ladders).map(([k, v]) => [k, Number(v)])),
       participants: [],
-      snakeCount: 0,
-      ladderCount: 0
+      snakeCount,
+      ladderCount
     });
     
     await newGame.save();
     res.status(201).json(newGame);
   } catch (error) {
+    console.error('Error creating game:', error);
     res.status(500).json({ error: error.message });
   }
 });
