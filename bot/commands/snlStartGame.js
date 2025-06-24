@@ -1,12 +1,14 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import Game from '../models/Game.js';
 import Application from '../models/Application.js';
 import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
+import { getSingleRegistrationGame } from '../helpers/singleGameHelpers.js';
+import { startGameWithParticipants } from '../helpers/gameStartHandlers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlstart')
-    .setDescription('Start a Snakes & Ladders game with accepted participants (Moderator only)'),
+    .setDescription('Start the Snakes & Ladders game with accepted participants (Moderator only)'),
 
   async execute(interaction) {
     // Check moderator permissions
@@ -15,66 +17,41 @@ export default {
     }
 
     try {
-      // Get all games that have accepted applications and are in registration status
-      const gamesWithAcceptedApps = await Application.aggregate([
-        { $match: { status: 'accepted' } },
-        { $group: { _id: '$gameId', count: { $sum: 1 } } }
-      ]);
-
-      if (gamesWithAcceptedApps.length === 0) {
+      // Get the single registration game
+      const game = await getSingleRegistrationGame();
+      
+      if (!game) {
         return await interaction.editReply({ 
-          content: '📭 No games found with accepted participants.'
+          content: '❌ No game in registration status found. Create a game and start registration first.'
         });
       }
 
-      // Get game details for each game with accepted applications
-      const gameIds = gamesWithAcceptedApps.map(g => g._id);
-      const games = await Game.find({ 
-        gameId: { $in: gameIds },
-        status: 'registration'
+      // Get accepted applications for this game
+      const acceptedApplications = await Application.find({ 
+        gameId: game.gameId, 
+        status: 'accepted' 
       });
 
-      if (games.length === 0) {
+      if (acceptedApplications.length === 0) {
         return await interaction.editReply({ 
-          content: '❌ No games in registration status with accepted participants found.'
+          content: `❌ No accepted participants found for game "${game.name}". Accept some applications first.`
         });
       }
 
-      // Create dropdown menu for game selection
-      const gameOptions = games.map(game => {
-        const participantCount = gamesWithAcceptedApps.find(g => g._id === game.gameId)?.count || 0;
-        return {
-          label: game.name,
-          description: `${participantCount} accepted participants | Team size: ${game.maxTeamSize || 'Not set'}`,
-          value: `start_game_${game.gameId}`
-        };
-      }).slice(0, 25); // Discord limit
+      // Check if game has required parameters set
+      if (!game.maxTeamSize) {
+        return await interaction.editReply({ 
+          content: '❌ Game setup incomplete. Maximum team size not set. Please complete the game configuration first.'
+        });
+      }
 
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('select_game_to_start')
-        .setPlaceholder('Select a game to start')
-        .addOptions(gameOptions);
-
-      const row = new ActionRowBuilder().addComponents(selectMenu);
-
-      const embed = new EmbedBuilder()
-        .setTitle('🎮 Start Game - Select Game')
-        .setDescription('Choose a game to start with accepted participants. This will:\n• Create randomized teams\n• Create private team channels\n• Assign team leaders and co-leaders\n• Begin the game!')
-        .addFields(
-          { name: '📊 Summary', value: `**${games.length}** games ready to start\n**${gamesWithAcceptedApps.reduce((sum, g) => sum + g.count, 0)}** total accepted participants` }
-        )
-        .setColor('#0099ff')
-        .setTimestamp();
-
-      await interaction.editReply({ 
-        embeds: [embed], 
-        components: [row] 
-      });
+      // Start the game
+      await startGameWithParticipants(interaction, game.gameId);
 
     } catch (error) {
-      console.error('Error fetching games to start:', error);
+      console.error('Error starting game:', error);
       await interaction.editReply({ 
-        content: '❌ Failed to fetch games. Please try again later.'
+        content: '❌ Failed to start the game. Please try again later.'
       });
     }
   },

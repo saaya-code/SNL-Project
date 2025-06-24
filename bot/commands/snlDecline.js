@@ -2,11 +2,12 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBu
 import Game from '../models/Game.js';
 import Application from '../models/Application.js';
 import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
+import { getSingleRegistrationGame } from '../helpers/singleGameHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snldecline')
-    .setDescription('Decline pending applications for SNL games (Moderator only)'),
+    .setDescription('Decline pending applications for the SNL game (Moderator only)'),
 
   async execute(interaction) {
     // Check moderator permissions
@@ -15,50 +16,58 @@ export default {
     }
 
     try {
-      // Get all games that have pending applications
-      const gamesWithApplications = await Application.aggregate([
-        { $match: { status: 'pending' } },
-        { $group: { _id: '$gameId', count: { $sum: 1 } } }
-      ]);
-
-      if (gamesWithApplications.length === 0) {
+      // Get the current registration game
+      const game = await getSingleRegistrationGame();
+      
+      if (!game) {
         return await interaction.editReply({ 
-          content: '📭 No pending applications found across all games.'
+          content: '❌ No game in registration status found. Create a game and start registration first.'
         });
       }
 
-      // Get game details for each game with applications
-      const gameIds = gamesWithApplications.map(g => g._id);
-      const games = await Game.find({ gameId: { $in: gameIds } });
+      // Get pending applications for this game
+      const pendingApplications = await Application.find({
+        gameId: game.gameId,
+        status: 'pending'
+      });
 
-      if (games.length === 0) {
+      if (pendingApplications.length === 0) {
         return await interaction.editReply({ 
-          content: '❌ No games found for pending applications.'
+          content: `📭 No pending applications found for game "${game.name}".`
         });
       }
 
-      // Create dropdown menu for game selection
-      const gameOptions = games.map(game => {
-        const appCount = gamesWithApplications.find(g => g._id === game.gameId)?.count || 0;
-        return {
-          label: game.name,
-          description: `${appCount} pending application${appCount !== 1 ? 's' : ''} | Status: ${game.status}`,
-          value: `decline_game_${game.gameId}`
-        };
-      }).slice(0, 25); // Discord limit
+      // Create dropdown menu for application selection
+      const applicationOptions = pendingApplications
+        .filter(app => app._id && (app.displayName || app.username || app.userId)) // Ensure required fields exist
+        .map(app => ({
+          label: app.displayName || app.username || app.userId || 'Unknown User',
+          description: `Applied: ${new Date(app.appliedAt).toLocaleDateString()}`,
+          value: `decline_app_${app._id}`
+        }))
+        .slice(0, 25); // Discord limit
+
+      if (applicationOptions.length === 0) {
+        return await interaction.editReply({ 
+          content: '❌ No valid applications found to display. Applications may be missing required data.'
+        });
+      }
 
       const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('select_game_decline')
-        .setPlaceholder('Select a game to decline applications')
-        .addOptions(gameOptions);
+        .setCustomId('select_application_decline')
+        .setPlaceholder('Select applications to decline')
+        .addOptions(applicationOptions)
+        .setMinValues(1)
+        .setMaxValues(Math.min(applicationOptions.length, 25));
 
       const row = new ActionRowBuilder().addComponents(selectMenu);
 
       const embed = new EmbedBuilder()
-        .setTitle('❌ Decline Applications - Select Game')
-        .setDescription('Choose a game to view and decline pending applications.')
+        .setTitle(`❌ Decline Applications - ${game.name}`)
+        .setDescription('Select the applications you want to decline for this game.')
         .addFields(
-          { name: '📊 Summary', value: `**${games.length}** games with pending applications\n**${gamesWithApplications.reduce((sum, g) => sum + g.count, 0)}** total pending applications` }
+          { name: '📊 Pending Applications', value: `${pendingApplications.length} applications waiting for review` },
+          { name: '🎮 Game Status', value: game.status }
         )
         .setColor('#ff0000')
         .setTimestamp();

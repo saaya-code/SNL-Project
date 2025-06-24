@@ -15,9 +15,9 @@ const TeamSchema = new mongoose.Schema({
     displayName: { type: String, required: true }
   },
   coLeader: { 
-    userId: { type: String, required: true },
-    username: { type: String, required: true },
-    displayName: { type: String, required: true }
+    userId: { type: String, required: false },
+    username: { type: String, required: false },
+    displayName: { type: String, required: false }
   },
   channelId: { type: String, required: true },
   currentPosition: { type: Number, default: 1 },

@@ -127,8 +127,8 @@ export default {
         await game.save();
       } else {
         embed.addFields({ 
-          name: '⏭️ Next Turn', 
-          value: 'Your team is now locked from rolling until the next round. Wait for other teams to play!' 
+          name: '🔒 Task Pending', 
+          value: 'Your team is now locked from rolling until you complete the task on this tile. Please finish the task and tag a moderator to unlock your next roll!' 
         });
       }
 
@@ -165,6 +165,53 @@ export default {
       try {
         // Get all teams for this game
         const allTeams = await Team.find({ gameId: game.gameId });
+        
+        // Send to SNL announcements channel first
+        if (game.announcementsChannelId) {
+          try {
+            const announcementsChannel = await interaction.guild.channels.fetch(game.announcementsChannelId);
+            if (announcementsChannel) {
+              const announcementEmbed = new EmbedBuilder()
+                .setTitle(`🎲 ${team.teamName} Rolled!`)
+                .setDescription(`**${interaction.user.displayName}** rolled **${diceRoll}** and moved from tile **${oldPosition}** to tile **${newPosition}**`)
+                .setColor(embed.data.color);
+
+              // Add snake/ladder message if applicable
+              if (snakeOrLadderMessage) {
+                announcementEmbed.addFields({ name: snakeOrLadderEmoji + ' Special Move!', value: snakeOrLadderMessage });
+              }
+
+              // Add win condition
+              if (newPosition === 100) {
+                announcementEmbed.addFields({ 
+                  name: '🏆 VICTORY!', 
+                  value: `**${team.teamName}** has reached tile 100 and won the game! 🎉` 
+                });
+              }
+
+              // Add current tile task if exists
+              if (currentTask) {
+                let taskField = `**Task:** ${currentTask.description}`;
+                announcementEmbed.addFields({ name: `📝 Tile ${newPosition} Task`, value: taskField });
+              }
+
+              announcementEmbed.setFooter({ text: `Game: ${game.name}` }).setTimestamp();
+              
+              if (boardAttachment) {
+                announcementEmbed.setImage('attachment://gameboard.png');
+              }
+              
+              const announcementOptions = { embeds: [announcementEmbed] };
+              if (boardAttachment) {
+                announcementOptions.files = [boardAttachment];
+              }
+              
+              await announcementsChannel.send(announcementOptions);
+            }
+          } catch (error) {
+            console.log('Could not post to announcements channel:', error);
+          }
+        }
         
         // Send to game's original channel
         if (game.channelId && game.channelId !== interaction.channelId) {

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import Game from '../models/Game.js';
 import Team from '../models/Team.js';
+import { getSingleActiveGame } from '../helpers/singleGameHelpers.js';
 import axios from 'axios';
 
 export default {
@@ -10,17 +11,15 @@ export default {
 
   async execute(interaction) {
     try {
-      // Find active games
-      const activeGames = await Game.find({ status: 'active' });
+      // Find the single active game
+      const game = await getSingleActiveGame();
       
-      if (activeGames.length === 0) {
+      if (!game) {
         return await interaction.editReply({ 
-          content: '📭 No active games found.'
+          content: '📭 No active game found. Use `/snlcreate` to create a new game.'
         });
       }
 
-      // For now, show the first active game (since we enforce only one at a time)
-      const game = activeGames[0];
       const teams = await Team.find({ gameId: game.gameId });
 
       // Fetch game board image from API

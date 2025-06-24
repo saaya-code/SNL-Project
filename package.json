@@ -4,6 +4,6 @@
   "workspaces": [
     "api",
     "bot",
-    "packages/*"
+    "dashboard/"
   ]
 }

@@ -5,6 +5,7 @@ const GameSchema = new mongoose.Schema({
   name: { type: String, required: true },
   status: { type: String, default: 'pending' }, // pending, registration, active, completed
   channelId: { type: String, required: true }, // Channel where game was created
+  announcementsChannelId: { type: String }, // SNL announcements channel for game updates
   tileTasks: { type: Map, of: Object, default: new Map() }, // Now stores: { description, imageUrl, uploadedImageUrl, uploadedImageName }
   snakes: { type: Map, of: Number, default: new Map() },
   ladders: { type: Map, of: Number, default: new Map() },

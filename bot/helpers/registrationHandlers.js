@@ -113,7 +113,7 @@ export async function handleJoinGame(interaction) {
       gameId: gameId,
       userId: interaction.user.id,
       username: interaction.user.username,
-      displayName: interaction.user.displayName || interaction.user.username,
+      displayName: interaction.user.globalName || interaction.user.displayName || interaction.user.username,
       avatarUrl: interaction.user.displayAvatarURL({ dynamic: true, size: 256 }),
       channelId: applicationChannel.id,
       status: 'pending'

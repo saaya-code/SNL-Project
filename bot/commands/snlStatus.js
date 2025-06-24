@@ -1,29 +1,25 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import Team from '../models/Team.js';
-import Game from '../models/Game.js';
+import { getCurrentGame } from '../helpers/singleGameHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlstatus')
-    .setDescription('Check the current status of a Snakes & Ladders game')
-    .addStringOption(option =>
-      option.setName('gameid')
-        .setDescription('The Game ID to check status for')
-        .setRequired(true)
-    ),
+    .setDescription('Check the current status of the Snakes & Ladders game'),
 
   async execute(interaction) {
-    const gameId = interaction.options.getString('gameid');
+    // Get the current game (single game mode)
+    const game = await getCurrentGame();
+    
+    if (!game) {
+      return await interaction.editReply({ 
+        content: '❌ No active game found. Use `/snlcreate` to create a new game.'
+      });
+    }
+
+    const gameId = game.gameId;
 
     try {
-      // Find the game
-      const game = await Game.findOne({ gameId: gameId });
-      if (!game) {
-        return await interaction.editReply({ 
-          content: `❌ Game with ID \`${gameId}\` not found.`
-        });
-      }
-
       // Find all teams for this game
       const teams = await Team.find({ gameId: gameId }).sort({ currentPosition: -1 });
 
@@ -113,7 +109,7 @@ export default {
       if (game.snakeCount || game.ladderCount) {
         embed.addFields({
           name: '🎯 Game Elements',
-          value: `🐍 Snakes: ${game.snakeCount}\n🪜 Ladders: ${game.ladderCount}\n📝 Tasks: ${Object.keys(game.tileTasks || {}).length}`,
+          value: `🐍 Snakes: ${game.snakeCount}\n🪜 Ladders: ${game.ladderCount}\n📝 Tasks: ${(game.tileTasks || []).length}`,
           inline: true
         });
       }

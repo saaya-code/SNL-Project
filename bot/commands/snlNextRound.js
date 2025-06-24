@@ -2,43 +2,30 @@ import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.
 import Team from '../models/Team.js';
 import Game from '../models/Game.js';
 import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
+import { getSingleActiveGame } from '../helpers/singleGameHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlnextround')
-    .setDescription('Start the next round - allows all teams to roll again (Moderator only)')
-    .addStringOption(option =>
-      option.setName('gameid')
-        .setDescription('The Game ID to start next round for')
-        .setRequired(true)
-    ),
+    .setDescription('Start the next round - allows all teams to roll again (Moderator only)'),
 
   async execute(interaction) {
-    const gameId = interaction.options.getString('gameid');
-
     // Check moderator permissions
     if (!(await requireModeratorPermissions(interaction))) {
       return;
     }
 
     try {
-      // Find the game
-      const game = await Game.findOne({ gameId: gameId });
+      // Find the single active game
+      const game = await getSingleActiveGame();
       if (!game) {
         return await interaction.editReply({ 
-          content: `❌ Game with ID \`${gameId}\` not found.`
-        });
-      }
-
-      // Check if game is active
-      if (game.status !== 'active') {
-        return await interaction.editReply({ 
-          content: `❌ Game "${game.name}" is not currently active. Status: ${game.status}`
+          content: '❌ No active game found. Use `/snlcreate` to create a new game.'
         });
       }
 
       // Find all teams for this game
-      const teams = await Team.find({ gameId: gameId });
+      const teams = await Team.find({ gameId: game.gameId });
       
       if (teams.length === 0) {
         return await interaction.editReply({ 
@@ -48,7 +35,7 @@ export default {
 
       // Reset canRoll to true for all teams
       await Team.updateMany(
-        { gameId: gameId },
+        { gameId: game.gameId },
         { $set: { canRoll: true } }
       );
 

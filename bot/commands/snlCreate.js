@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Game from '../models/Game.js';
 import { tempGameData } from '../helpers/gameCreationHandlers.js';
 import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
+import { hasActiveOrPendingGame } from '../helpers/singleGameHelpers.js';
 
 
 
@@ -24,19 +25,14 @@ export default {
 
     const name = interaction.options.getString('name');
     
-    // Check if there's already a pending game
-    const existingPendingGame = await Game.findOne({ status: 'pending' });
-    if (existingPendingGame) {
+    // Check if there's already a game in progress (single game mode)
+    if (await hasActiveOrPendingGame()) {
+      const existingGame = await Game.findOne({
+        status: { $in: ['pending', 'registration', 'active'] }
+      }).sort({ createdAt: -1 });
+      
       return await interaction.editReply({ 
-        content: `❌ There is already a pending game: **${existingPendingGame.name}** (ID: ${existingPendingGame.gameId}). Please start registration for this game or clean it up before creating a new one.`
-      });
-    }
-
-    // Check if there's already an active game
-    const existingActiveGame = await Game.findOne({ status: 'active' });
-    if (existingActiveGame) {
-      return await interaction.editReply({ 
-        content: `❌ There is already an active game: **${existingActiveGame.name}**. Please wait for it to complete before creating a new game.`
+        content: `❌ There is already a game in progress: **${existingGame.name}** (Status: ${existingGame.status}). Please complete or clean up the current game before creating a new one.`
       });
     }
     

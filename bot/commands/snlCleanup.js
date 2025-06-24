@@ -1,18 +1,20 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType } from 'discord.js';
 import Game from '../models/Game.js';
 import Team from '../models/Team.js';
 import Application from '../models/Application.js';
 import { requireModeratorPermissions } from '../helpers/moderatorHelpers.js';
+import { getCurrentGame } from '../helpers/singleGameHelpers.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('snlcleanup')
-    .setDescription('Clean up channels and data from completed SNL games (Moderator only)')
+    .setDescription('Clean up channels and data from SNL games (Moderator only)')
     .addStringOption(option =>
       option.setName('action')
         .setDescription('What to clean up')
         .setRequired(true)
         .addChoices(
+          { name: 'Clean current game', value: 'current' },
           { name: 'Select specific game', value: 'game' },
           { name: 'Clean all completed games', value: 'all_completed' },
           { name: 'Clean application channels only', value: 'applications' },
@@ -29,7 +31,9 @@ export default {
     const action = interaction.options.getString('action');
 
     try {
-      if (action === 'game') {
+      if (action === 'current') {
+        await cleanupCurrentGame(interaction);
+      } else if (action === 'game') {
         await showGameSelectionForCleanup(interaction);
       } else if (action === 'all_completed') {
         await cleanupAllCompletedGames(interaction);
@@ -46,6 +50,53 @@ export default {
     }
   },
 };
+
+// Clean up current game
+async function cleanupCurrentGame(interaction) {
+  try {
+    const currentGame = await getCurrentGame();
+    
+    if (!currentGame) {
+      return await interaction.editReply({ 
+        content: '❌ No current game found to clean up.'
+      });
+    }
+
+    // Get teams and applications count
+    const teams = await Team.find({ gameId: currentGame.gameId });
+    const applications = await Application.find({ gameId: currentGame.gameId });
+
+    const embed = new EmbedBuilder()
+      .setTitle('🧹 Clean Up Current Game')
+      .setDescription(`Are you sure you want to clean up the current game **${currentGame.name}**?\n\n**This will delete:**\n• Game data\n• ${teams.length} teams\n• ${applications.length} applications\n• All associated channels`)
+      .addFields(
+        { name: '⚠️ Warning', value: 'This action cannot be undone!' }
+      )
+      .setColor('#ff0000')
+      .setTimestamp();
+
+    const confirmButton = new ButtonBuilder()
+      .setCustomId(`confirm_cleanup_current_${currentGame.gameId}`)
+      .setLabel('🗑️ Delete Current Game')
+      .setStyle(ButtonStyle.Danger);
+
+    const cancelButton = new ButtonBuilder()
+      .setCustomId('cancel_cleanup')
+      .setLabel('❌ Cancel')
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+    await interaction.editReply({ 
+      embeds: [embed], 
+      components: [row] 
+    });
+
+  } catch (error) {
+    console.error('Error in cleanup current game:', error);
+    throw error;
+  }
+}
 
 // Show game selection for cleanup
 async function showGameSelectionForCleanup(interaction) {

@@ -82,34 +82,8 @@ export default function DashboardPage() {
 
   const isAdmin = (session?.user as any)?.isAdmin || (session?.user as any)?.isModerator
 
-  // Debug session data
-  console.log('Session data:', {
-    user: session?.user,
-    isAdmin: (session?.user as any)?.isAdmin,
-    isModerator: (session?.user as any)?.isModerator,
-    guildMember: (session?.user as any)?.guildMember,
-    guildPermissions: (session?.user as any)?.guildPermissions
-  })
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-900 via-blue-900 to-purple-900">
-      {/* User Status Indicator */}
-      <div className="fixed top-4 right-4 z-50 bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 border border-gray-600">
-        <div className="flex items-center space-x-2 text-sm">
-          <div className="w-2 h-2 rounded-full bg-green-400"></div>
-          <span className="text-white font-medium">{session?.user?.name}</span>
-          <span className="px-2 py-1 rounded text-xs font-semibold">
-            {isAdmin ? (
-              <span className="bg-red-600 text-white">
-                {(session?.user as any)?.isAdmin ? 'Admin' : 'Moderator'}
-              </span>
-            ) : (
-              <span className="bg-blue-600 text-white">Player</span>
-            )}
-          </span>
-        </div>
-      </div>
-
       {isAdmin ? (
         <AdminDashboard
           games={games}

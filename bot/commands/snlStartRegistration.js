@@ -49,6 +49,7 @@ export default {
       await game.save();
 
       // Create registration embed
+      const isDevelopmentMode = process.env.DEV_MODE === 'true';
       const embed = new EmbedBuilder()
         .setTitle(`🎮 ${game.name} - Team Registration Open!`)
         .setDescription(`Registration is now open for **${game.name}**!\n\nClick the button below to apply for this game.`)
@@ -64,6 +65,15 @@ export default {
         .setColor('#00ff00')
         .setFooter({ text: `Started by ${interaction.user.displayName}` })
         .setTimestamp();
+
+      // Add development mode note if applicable
+      if (isDevelopmentMode) {
+        embed.addFields({
+          name: '🔧 Development Mode',
+          value: 'Development mode is enabled - games can start with just 1 participant!',
+          inline: false
+        });
+      }
 
       // Create join button
       const row = new ActionRowBuilder()

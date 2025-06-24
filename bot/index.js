@@ -144,20 +144,16 @@ client.on(Events.InteractionCreate, async interaction => {
         } else if (interaction.isStringSelectMenu()) {
             const customId = interaction.customId;
 
-            // Don't defer select menus that show modals
-            if (customId === 'select_participant_accept' || customId === 'select_participant_decline') {
-                // These will show modals, so don't defer
-            } else {
-                await interaction.deferUpdate(); // Defer other select menu interactions
-            }
+            // All select menus now defer update (no modals in the new flow)
+            await interaction.deferUpdate();
 
             if (customId === 'select_game_accept') {
                 await handleSelectGameAccept(interaction);
             } else if (customId === 'select_game_decline') {
                 await handleSelectGameDecline(interaction);
-            } else if (customId === 'select_participant_accept') {
+            } else if (customId === 'select_application_accept') {
                 await handleSelectParticipantAccept(interaction);
-            } else if (customId === 'select_participant_decline') {
+            } else if (customId === 'select_application_decline') {
                 await handleSelectParticipantDecline(interaction);
             } else if (customId === 'select_game_to_start') {
                 await handleSelectGameToStart(interaction);

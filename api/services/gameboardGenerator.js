@@ -1,14 +1,101 @@
 import sharp from 'sharp';
-import axios from 'axios';
+import https from 'https';
+import http from 'http';
 
 const BOARD_SIZE = 1400;
 const TILE_SIZE = 140;
 const GRID_SIZE = 10;
 
+// Helper function to escape XML entities
+function escapeXml(unsafe) {
+  if (typeof unsafe !== 'string') return '';
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
+// Helper function to convert external image URL to data URL
+async function convertImageToDataUrl(imageUrl, maxSize = 140) {
+  try {
+    // If it's already a data URL, return as is
+    if (imageUrl.startsWith('data:')) {
+      return imageUrl;
+    }
+
+    console.log(`Converting external image to data URL: ${imageUrl}`);
+    
+    // Fetch the image using native http/https modules
+    const imageBuffer = await fetchImageBuffer(imageUrl);
+    if (!imageBuffer) {
+      return null;
+    }
+
+    // Process with Sharp to resize and optimize
+    const processedBuffer = await sharp(imageBuffer)
+      .resize(maxSize, maxSize, {
+        fit: 'cover',
+        position: 'center'
+      })
+      .jpeg({ quality: 80 }) // Convert to JPEG for smaller size
+      .toBuffer();
+
+    // Convert to base64 data URL
+    const base64 = processedBuffer.toString('base64');
+    const dataUrl = `data:image/jpeg;base64,${base64}`;
+    
+    console.log(`Successfully converted image to data URL (${Math.round(dataUrl.length / 1024)}KB)`);
+    return dataUrl;
+
+  } catch (error) {
+    console.warn(`Error converting image URL to data URL: ${error.message}`);
+    return null;
+  }
+}
+
+// Helper function to fetch image buffer using native modules
+function fetchImageBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const module = urlObj.protocol === 'https:' ? https : http;
+    
+    const request = module.get(url, {
+      timeout: 5000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; SNL-Bot/1.0)',
+      }
+    }, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
+        return;
+      }
+
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', reject);
+    });
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy();
+      reject(new Error('Request timeout'));
+    });
+  });
+}
+
 export async function generateGameBoard(game, teams) {
   try {
     // Create SVG content
     const svgContent = await createGameBoardSVG(game, teams);
+    
+
     
     // Convert SVG to PNG buffer
     const pngBuffer = await sharp(Buffer.from(svgContent))
@@ -18,13 +105,57 @@ export async function generateGameBoard(game, teams) {
     return pngBuffer;
   } catch (error) {
     console.error('Error generating game board:', error);
+    console.error('Game data:', JSON.stringify(game, null, 2));
+    console.error('Teams data:', JSON.stringify(teams, null, 2));
     throw error;
   }
 }
 
 async function createGameBoardSVG(game, teams) {
+  // First, collect all tile tasks and images to create clip paths
+  // Handle both game.tileTasks and game.gameParameters.tileTasks structures
+  const tileTasks = Object.fromEntries(game.tileTasks || game.gameParameters?.tileTasks || new Map());
+  
+  // Pre-process images: convert external URLs to data URLs
+  console.log('Pre-processing images...');
+  for (const [tileNumber, task] of Object.entries(tileTasks)) {
+    if (task && (task.imageUrl || task.uploadedImageUrl)) {
+      const imageUrl = task.uploadedImageUrl || task.imageUrl;
+      if (!imageUrl.startsWith('data:')) {
+        const dataUrl = await convertImageToDataUrl(imageUrl);
+        if (dataUrl) {
+          if (task.uploadedImageUrl) {
+            task.uploadedImageUrl = dataUrl;
+          } else {
+            task.imageUrl = dataUrl;
+          }
+          console.log(`✅ Converted image for tile ${tileNumber}`);
+        } else {
+          console.log(`❌ Failed to convert image for tile ${tileNumber}, skipping image`);
+          // Remove the image URLs if conversion failed
+          delete task.imageUrl;
+          delete task.uploadedImageUrl;
+        }
+      }
+    }
+  }
+  
+  const clipPaths = [];
+  
+  for (let i = 1; i <= 100; i++) {
+    const task = tileTasks[i];
+    if (task && (task.imageUrl || task.uploadedImageUrl)) {
+      const { x, y } = getTilePosition(i);
+      clipPaths.push(`
+        <clipPath id="tileClip${i}">
+          <rect x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" rx="8" ry="8"/>
+        </clipPath>
+      `);
+    }
+  }
+
   let svgContent = `
-    <svg width="${BOARD_SIZE}" height="${BOARD_SIZE}" xmlns="http://www.w3.org/2000/svg">
+    <svg width="${BOARD_SIZE}" height="${BOARD_SIZE}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
       <defs>
         <style>
           .tile { fill: #f8f8f8; stroke: #444; stroke-width: 3; }
@@ -47,6 +178,7 @@ async function createGameBoardSVG(game, teams) {
           <rect width="8" height="8" fill="#228B22"/>
           <circle cx="4" cy="4" r="2" fill="#32CD32" opacity="0.7"/>
         </pattern>
+        ${clipPaths.join('')}
       </defs>
       
       <!-- Board border -->
@@ -62,38 +194,57 @@ async function createGameBoardSVG(game, teams) {
     const col = (i - 1) % GRID_SIZE;
     const isAlternate = (row + col) % 2 === 1;
     
+    // Check for task and get image info
+    const tileTasks = Object.fromEntries(game.tileTasks || game.gameParameters?.tileTasks || new Map());
+    const task = tileTasks[i];
+    const hasImage = task && (task.imageUrl || task.uploadedImageUrl);
+    
     // Tile background with rounded corners
     svgContent += `<rect x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
                          class="${isAlternate ? 'tile-alt' : 'tile'}" rx="8" ry="8"/>`;
+    
+    // If tile has an image, display it
+    if (hasImage) {
+      const imageUrl = escapeXml(task.uploadedImageUrl || task.imageUrl);
+      
+      svgContent += `
+        <image x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
+               href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid slice"/>
+        <!-- Semi-transparent overlay to ensure tile number is visible -->
+        <rect x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
+              fill="rgba(255,255,255,0.3)" rx="8" ry="8"/>
+      `;
+    }
     
     // Tile number with background circle
     svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="white" stroke="#444" stroke-width="2"/>`;
     svgContent += `<text x="${x + 25}" y="${y + 32}" text-anchor="middle" class="tile-number">${i}</text>`;
     
     // Check for task and add task indicator
-    const tileTasks = Object.fromEntries(game.tileTasks || new Map());
-    if (tileTasks[i]) {
-      const taskName = tileTasks[i].name || 'Task';
+    if (task) {
+      const taskName = escapeXml(task.name || task.description || 'Task');
       svgContent += `<circle cx="${x + TILE_SIZE - 20}" cy="${y + 20}" r="10" class="task-indicator"/>`;
       svgContent += `<text x="${x + TILE_SIZE - 20}" y="${y + 26}" text-anchor="middle" font-size="14" font-weight="bold" fill="white">T</text>`;
       
-      // Add task name below tile number
-      const words = taskName.split(' ');
-      let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
-      let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
-      
-      if (line1.length > 15) line1 = line1.substring(0, 13) + '...';
-      if (line2.length > 15) line2 = line2.substring(0, 13) + '...';
-      
-      svgContent += `<text x="${x + 8}" y="${y + 55}" class="task-text">${line1}</text>`;
-      if (line2) {
-        svgContent += `<text x="${x + 8}" y="${y + 70}" class="task-text">${line2}</text>`;
+      // Add task name below tile number (only if no image or image doesn't cover text area)
+      if (!hasImage) {
+        const words = taskName.split(' ');
+        let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
+        let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
+        
+        if (line1.length > 15) line1 = line1.substring(0, 13) + '...';
+        if (line2.length > 15) line2 = line2.substring(0, 13) + '...';
+        
+        svgContent += `<text x="${x + 8}" y="${y + 55}" class="task-text">${escapeXml(line1)}</text>`;
+        if (line2) {
+          svgContent += `<text x="${x + 8}" y="${y + 70}" class="task-text">${escapeXml(line2)}</text>`;
+        }
       }
     }
   }
 
   // Draw snakes
-  const snakes = Object.fromEntries(game.snakes || new Map());
+  const snakes = Object.fromEntries(game.snakes || game.gameParameters?.snakes || new Map());
   for (const [start, end] of Object.entries(snakes)) {
     const startPos = getTilePosition(parseInt(start));
     const endPos = getTilePosition(parseInt(end));
@@ -101,7 +252,7 @@ async function createGameBoardSVG(game, teams) {
   }
 
   // Draw ladders
-  const ladders = Object.fromEntries(game.ladders || new Map());
+  const ladders = Object.fromEntries(game.ladders || game.gameParameters?.ladders || new Map());
   for (const [start, end] of Object.entries(ladders)) {
     const startPos = getTilePosition(parseInt(start));
     const endPos = getTilePosition(parseInt(end));
@@ -118,18 +269,44 @@ async function createGameBoardSVG(game, teams) {
     // Team marker with shadow effect
     svgContent += `<circle cx="${pos.x + 45 + offset + 3}" cy="${pos.y + 95 + 3}" r="18" fill="rgba(0,0,0,0.3)"/>`;
     svgContent += `<circle cx="${pos.x + 45 + offset}" cy="${pos.y + 95}" r="18" fill="${color}" stroke="#000" stroke-width="3"/>`;
-    svgContent += `<text x="${pos.x + 45 + offset}" y="${pos.y + 102}" text-anchor="middle" class="team-marker" fill="white">${team.teamName.charAt(team.teamName.length - 1)}</text>`;
+    svgContent += `<text x="${pos.x + 45 + offset}" y="${pos.y + 102}" text-anchor="middle" class="team-marker" fill="white">${escapeXml(team.teamName.charAt(team.teamName.length - 1))}</text>`;
   });
 
   // Add game info with enhanced styling
   svgContent += `
     <rect x="15" y="15" width="280" height="85" fill="rgba(255,255,255,0.95)" stroke="#333" stroke-width="2" rx="10" ry="10"/>
-    <text x="25" y="40" font-family="Arial Black" font-size="18" font-weight="bold" fill="#333">${game.name}</text>
-    <text x="25" y="60" font-family="Arial" font-size="14" fill="#666">Teams: ${teams.length} | Status: ${game.status.toUpperCase()}</text>
-    <text x="25" y="78" font-family="Arial" font-size="12" fill="#888">Snakes: ${Object.keys(game.snakes || {}).length} | Ladders: ${Object.keys(game.ladders || {}).length}</text>
+    <text x="25" y="40" font-family="Arial Black" font-size="18" font-weight="bold" fill="#333">${escapeXml(game.name)}</text>
+    <text x="25" y="60" font-family="Arial" font-size="14" fill="#666">Teams: ${teams.length} | Status: ${escapeXml(game.status.toUpperCase())}</text>
+    <text x="25" y="78" font-family="Arial" font-size="12" fill="#888">Snakes: ${Object.keys(snakes).length} | Ladders: ${Object.keys(ladders).length}</text>
   `;
 
   svgContent += '</svg>';
+  
+  // Validate SVG content before returning
+  try {
+    // Basic XML validation - check for unmatched brackets and entities
+    const xmlIssues = [];
+    
+    // Check for unescaped ampersands
+    const unescapedAmp = svgContent.match(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g);
+    if (unescapedAmp) {
+      xmlIssues.push(`Unescaped ampersands found: ${unescapedAmp.join(', ')}`);
+    }
+    
+    // Check for mismatched quotes
+    const quotes = svgContent.match(/"/g);
+    if (quotes && quotes.length % 2 !== 0) {
+      xmlIssues.push('Mismatched quotes detected');
+    }
+    
+    if (xmlIssues.length > 0) {
+      console.error('SVG validation issues:', xmlIssues);
+      console.error('Problematic SVG content:', svgContent.substring(0, 1000));
+    }
+  } catch (validationError) {
+    console.error('SVG validation error:', validationError);
+  }
+  
   return svgContent;
 }
 
@@ -305,21 +482,32 @@ function drawLadder(startPos, endPos) {
   const length = Math.sqrt(dx * dx + dy * dy);
   const angle = Math.atan2(dy, dx);
   
-  // Ladder width
+  // Ladder width - ensure minimum width for vertical ladders
   const ladderWidth = 16;
   
   // Calculate perpendicular offset for ladder sides
-  const perpX = -Math.sin(angle) * ladderWidth;
-  const perpY = Math.cos(angle) * ladderWidth;
+  // Fix for vertical ladders by ensuring minimum perpendicular distance
+  let perpX = -Math.sin(angle) * ladderWidth;
+  let perpY = Math.cos(angle) * ladderWidth;
+  
+  // If ladder is nearly vertical or horizontal, adjust perpendicular values
+  if (Math.abs(perpX) < 8) {
+    perpX = perpX >= 0 ? 8 : -8;
+  }
+  if (Math.abs(perpY) < 8) {
+    perpY = perpY >= 0 ? 8 : -8;
+  }
+  
+  const uniqueId = `${Math.floor(startX)}_${Math.floor(startY)}`;
   
   let ladderSvg = `
     <defs>
-      <linearGradient id="woodGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <linearGradient id="woodGradient_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" style="stop-color:#DEB887;stop-opacity:1" />
         <stop offset="50%" style="stop-color:#D2B48C;stop-opacity:1" />
         <stop offset="100%" style="stop-color:#8B7355;stop-opacity:1" />
       </linearGradient>
-      <linearGradient id="ladderSideGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <linearGradient id="ladderSideGradient_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" style="stop-color:#CD853F;stop-opacity:1" />
         <stop offset="50%" style="stop-color:#A0522D;stop-opacity:1" />
         <stop offset="100%" style="stop-color:#8B4513;stop-opacity:1" />
@@ -334,9 +522,15 @@ function drawLadder(startPos, endPos) {
     
     <!-- Ladder sides with wood texture -->
     <line x1="${startX + perpX}" y1="${startY + perpY}" x2="${endX + perpX}" y2="${endY + perpY}" 
-          stroke="url(#ladderSideGradient)" stroke-width="6" stroke-linecap="round"/>
+          stroke="url(#ladderSideGradient_${uniqueId})" stroke-width="6" stroke-linecap="round"/>
     <line x1="${startX - perpX}" y1="${startY - perpY}" x2="${endX - perpX}" y2="${endY - perpY}" 
-          stroke="url(#ladderSideGradient)" stroke-width="6" stroke-linecap="round"/>
+          stroke="url(#ladderSideGradient_${uniqueId})" stroke-width="6" stroke-linecap="round"/>
+    
+    <!-- Ladder side highlights -->
+    <line x1="${startX + perpX}" y1="${startY + perpY}" x2="${endX + perpX}" y2="${endY + perpY}" 
+          stroke="#F5DEB3" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    <line x1="${startX - perpX}" y1="${startY - perpY}" x2="${endX - perpX}" y2="${endY - perpY}" 
+          stroke="#F5DEB3" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
   `;
   
   // Draw ladder rungs with realistic spacing
@@ -354,7 +548,7 @@ function drawLadder(startPos, endPos) {
     
     // Main rung with wood gradient
     ladderSvg += `<line x1="${rungX + perpX}" y1="${rungY + perpY}" x2="${rungX - perpX}" y2="${rungY - perpY}" 
-                       stroke="url(#woodGradient)" stroke-width="4" stroke-linecap="round"/>`;
+                       stroke="url(#woodGradient_${uniqueId})" stroke-width="4" stroke-linecap="round"/>`;
     
     // Rung highlight
     ladderSvg += `<line x1="${rungX + perpX * 0.8}" y1="${rungY + perpY * 0.8}" x2="${rungX - perpX * 0.8}" y2="${rungY - perpY * 0.8}" 
@@ -364,11 +558,11 @@ function drawLadder(startPos, endPos) {
   // Ladder end decorations
   ladderSvg += `
     <!-- Bottom platform -->
-    <circle cx="${startX}" cy="${startY}" r="16" fill="url(#woodGradient)" stroke="#8B4513" stroke-width="3"/>
+    <circle cx="${startX}" cy="${startY}" r="16" fill="url(#woodGradient_${uniqueId})" stroke="#8B4513" stroke-width="3"/>
     <circle cx="${startX}" cy="${startY}" r="10" fill="#228B22" stroke="#006400" stroke-width="2"/>
     
     <!-- Top platform -->
-    <circle cx="${endX}" cy="${endY}" r="16" fill="url(#woodGradient)" stroke="#8B4513" stroke-width="3"/>
+    <circle cx="${endX}" cy="${endY}" r="16" fill="url(#woodGradient_${uniqueId})" stroke="#8B4513" stroke-width="3"/>
     <circle cx="${endX}" cy="${endY}" r="10" fill="#FFD700" stroke="#FFA500" stroke-width="2"/>
     
     <!-- Labels -->
