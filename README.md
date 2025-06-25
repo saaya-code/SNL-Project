@@ -325,4 +325,4 @@ For support, please create an issue in the GitHub repository or contact the deve
 
 ---
 
-**Made with ❤️ for the Discord gaming community**
+**Made with ❤️ by @saaya-code for the Discord gaming community**
