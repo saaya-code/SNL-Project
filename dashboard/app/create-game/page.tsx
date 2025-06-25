@@ -300,18 +300,57 @@ export default function CreateGamePage() {
         return
       }
 
-      // Create tileTasks object
+      // Create tileTasks object with proper image handling
       const tileTasks: Record<string, any> = {}
       const snakes: Record<string, number> = {}
       const ladders: Record<string, number> = {}
 
-      tiles.forEach(tile => {
+      // Helper function to convert file to base64
+      const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.readAsDataURL(file)
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = error => reject(error)
+        })
+      }
+
+      // Count tiles with images for progress tracking
+      const tilesWithImages = tiles.filter(tile => tile.imageFile).length
+      let processedImages = 0
+
+      if (tilesWithImages > 0) {
+        toast('Converting images to send to server...', { icon: '🖼️' })
+      }
+
+      // Process tiles and convert images to base64
+      for (const tile of tiles) {
         if (tile.taskName.trim() !== '' || tile.imageFile) {
-          tileTasks[tile.id.toString()] = {
+          const tileData: any = {
             name: tile.taskName,
-            description: tile.taskDescription,
-            imageUrl: tile.imageUrl
+            description: tile.taskDescription
           }
+
+          // Convert image file to base64 if it exists
+          if (tile.imageFile) {
+            try {
+              console.log(`Converting image for tile ${tile.id} to base64...`)
+              const base64Image = await fileToBase64(tile.imageFile)
+              tileData.imageUrl = base64Image
+              processedImages++
+              console.log(`✅ Successfully converted image for tile ${tile.id} (${Math.round(base64Image.length / 1024)}KB)`)
+              
+              if (tilesWithImages > 1) {
+                toast(`Converting images... ${processedImages}/${tilesWithImages}`, { icon: '⏳' })
+              }
+            } catch (error) {
+              console.error(`Error converting image for tile ${tile.id}:`, error)
+              toast.error(`Failed to process image for tile ${tile.id}`)
+              // Continue without the image if conversion fails
+            }
+          }
+
+          tileTasks[tile.id.toString()] = tileData
         }
         
         if (tile.hasSnake && tile.snakeEnd) {
@@ -321,7 +360,11 @@ export default function CreateGamePage() {
         if (tile.hasLadder && tile.ladderEnd) {
           ladders[tile.id.toString()] = tile.ladderEnd
         }
-      })
+      }
+
+      if (tilesWithImages > 0) {
+        toast.success(`All ${processedImages} images converted successfully!`)
+      }
 
       const gameData = {
         name: gameForm.name,
@@ -333,6 +376,12 @@ export default function CreateGamePage() {
         snakeCount: gameForm.snakeCount,
         ladderCount: gameForm.ladderCount
       }
+
+      console.log('Sending game data to server:', { 
+        ...gameData, 
+        tileTasks: Object.keys(gameData.tileTasks).length + ' tiles with tasks',
+        imageCount: Object.values(gameData.tileTasks).filter((task: any) => task.imageUrl).length
+      })
 
       await gamesApi.create(gameData)
       toast.success('Game created successfully!')

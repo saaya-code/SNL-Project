@@ -31,6 +31,10 @@ export interface Game {
   maxTeamSize: number
   createdAt: string
   updatedAt: string
+  // Additional fields returned when starting a game
+  teamsCreated?: Team[]
+  acceptedApplications?: number
+  devMode?: boolean
 }
 
 export interface TaskData {

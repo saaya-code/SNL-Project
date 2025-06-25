@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import { Game, Team, Application, User } from '@/types/index'
 import { 
   Users, 
@@ -13,7 +12,23 @@ import {
   RotateCcw,
   UserCheck,
   UserX,
-  Trash2
+  Trash2,
+  Eye,
+  MapPin,
+  TrendingUp,
+  Award,
+  Clock,
+  Crown,
+  Target,
+  Trophy,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Zap,
+  Shield,
+  Send,
+  Calendar,
+  Dice6
 } from 'lucide-react'
 import { gamesApi, teamsApi, applicationsApi } from '@/lib/api'
 import { toast } from 'react-hot-toast'
@@ -33,73 +48,386 @@ export default function AdminDashboard({
   user, 
   onRefresh 
 }: AdminDashboardProps) {
-  const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications'>('games')
+  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications' | 'board'>('games')
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null)
+  const [gameTeams, setGameTeams] = useState<Team[]>([])
+  const [gameApplications, setGameApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(false)
+  const [boardImageKey, setBoardImageKey] = useState<number>(Date.now())
+  const [boardLoading, setBoardLoading] = useState(false)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    action: () => void
+    type: 'danger' | 'warning' | 'info'
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    action: () => {},
+    type: 'info'
+  })
+
+  // Debug: Log user object on mount
+  useEffect(() => {
+    console.log('Admin Dashboard - User object:', user)
+    console.log('User ID:', user?.id)
+    console.log('User keys:', Object.keys(user || {}))
+  }, [user])
+
+  // Load data for selected game
+  useEffect(() => {
+    if (selectedGame) {
+      loadGameData(selectedGame.gameId)
+    }
+  }, [selectedGame])
+
+  // Auto-refresh board image and game data when viewing the board tab
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    
+    if (activeTab === 'board' && selectedGame) {
+      // Refresh immediately
+      refreshBoardData()
+      
+      // Set up polling every 10 seconds
+      interval = setInterval(() => {
+        refreshBoardData()
+      }, 10000)
+    }
+    
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [activeTab, selectedGame])
+
+  const loadGameData = async (gameId: string) => {
+    try {
+      setLoading(true)
+      const [teamsData, applicationsData] = await Promise.all([
+        teamsApi.getByGame(gameId),
+        applicationsApi.getByGame(gameId)
+      ])
+      setGameTeams(teamsData)
+      setGameApplications(applicationsData)
+    } catch (error) {
+      console.error('Error loading game data:', error)
+      toast.error('Failed to load game data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshBoardData = async () => {
+    if (!selectedGame) return
+    
+    try {
+      setBoardLoading(true)
+      // Refresh teams data to get latest positions
+      const teamsData = await teamsApi.getByGame(selectedGame.gameId)
+      setGameTeams(teamsData)
+      
+      // Force board image refresh by updating the cache-busting key
+      setBoardImageKey(Date.now())
+    } catch (error) {
+      console.error('Error refreshing board data:', error)
+    } finally {
+      setBoardLoading(false)
+    }
+  }
+
+  const forceBoardRefresh = () => {
+    setBoardImageKey(Date.now())
+    if (selectedGame) {
+      loadGameData(selectedGame.gameId)
+    }
+  }
+
+  const showConfirmDialog = (title: string, message: string, action: () => void, type: 'danger' | 'warning' | 'info' = 'info') => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      action,
+      type
+    })
+  }
 
   const handleGameAction = async (gameId: string, action: string) => {
-    try {
-      setLoading(true)
-      
-      switch (action) {
-        case 'start':
-          await gamesApi.startGame(gameId)
-          toast.success('Game started!')
-          break
-        case 'pause':
-          // Pause functionality would need to be implemented
-          toast.success('Pause functionality coming soon!')
-          break
-        case 'reset':
-          await gamesApi.resetGame(gameId, 'active')
-          toast.success('Game reset!')
-          break
-        case 'delete':
-          if (confirm('Are you sure you want to delete this game?')) {
-            await gamesApi.delete(gameId)
-            toast.success('Game deleted!')
+    const game = games.find(g => g.gameId === gameId)
+    if (!game) return
+
+    const actions = {
+      'start-registration': () => {
+        showConfirmDialog(
+          'Start Registration',
+          `Are you sure you want to start registration for "${game.name}"? This will allow players to apply to join teams.`,
+          async () => {
+            try {
+              setLoading(true)
+              await gamesApi.startRegistration(gameId, game.maxTeamSize)
+              toast.success('Registration started!')
+              onRefresh()
+            } catch (error) {
+              console.error('Start registration failed:', error)
+              toast.error('Failed to start registration')
+            } finally {
+              setLoading(false)
+            }
+          },
+          'info'
+        )
+      },
+      'start-game': () => {
+        // First, get accepted applications count
+        const getAcceptedCount = async () => {
+          try {
+            const applications = await applicationsApi.getByGame(gameId)
+            return applications.filter(app => app.status === 'accepted').length
+          } catch (error) {
+            console.error('Error getting applications:', error)
+            return 0
           }
-          break
+        }
+
+        const showStartGameDialog = async () => {
+          const acceptedCount = await getAcceptedCount()
+          const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === 'true' || localStorage.getItem('devMode') === 'true'
+          
+          let message = `Are you sure you want to start the game "${game.name}"? This will begin the actual gameplay and teams can start rolling dice.`
+          
+          if (!isDevMode && acceptedCount < 2) {
+            message += `\n\n⚠️ Warning: Only ${acceptedCount} accepted participant(s) found. At least 2 participants are required to start the game in normal mode.`
+            
+            showConfirmDialog(
+              'Cannot Start Game',
+              message,
+              () => {}, // No action
+              'danger'
+            )
+            return
+          }
+          
+          if (isDevMode && acceptedCount === 1) {
+            message += `\n\n🔧 Dev Mode: Starting with 1 participant. A single team will be created.`
+          }
+          
+          if (acceptedCount === 0) {
+            showConfirmDialog(
+              'Cannot Start Game',
+              'No accepted applications found for this game. Please accept some applications first.',
+              () => {}, // No action
+              'danger'
+            )
+            return
+          }
+
+          showConfirmDialog(
+            'Start Game',
+            message,
+            async () => {
+              try {
+                setLoading(true)
+                const result = await gamesApi.startGame(gameId)
+                
+                let successMessage = 'Game started!'
+                if (result.teamsCreated) {
+                  successMessage += ` ${result.teamsCreated.length} team(s) created from ${result.acceptedApplications} participants.`
+                }
+                if (result.devMode && result.acceptedApplications === 1) {
+                  successMessage += ' (Dev Mode: Single team created)'
+                }
+                
+                toast.success(successMessage)
+                onRefresh()
+              } catch (error: any) {
+                console.error('Start game failed:', error)
+                const errorMessage = error.response?.data?.error || 'Failed to start game'
+                toast.error(errorMessage)
+              } finally {
+                setLoading(false)
+              }
+            },
+            'warning'
+          )
+        }
+
+        showStartGameDialog()
+      },
+      'reset': () => {
+        showConfirmDialog(
+          'Reset Game',
+          `Are you sure you want to reset "${game.name}"? This will reset all team positions to the starting position but keep teams intact.`,
+          async () => {
+            try {
+              setLoading(true)
+              await gamesApi.resetGame(gameId, 'active')
+              toast.success('Game reset!')
+              onRefresh()
+            } catch (error) {
+              console.error('Reset game failed:', error)
+              toast.error('Failed to reset game')
+            } finally {
+              setLoading(false)
+            }
+          },
+          'warning'
+        )
+      },
+      'delete': () => {
+        showConfirmDialog(
+          'Delete Game',
+          `Are you sure you want to permanently delete "${game.name}"? This action cannot be undone and will remove all associated teams and applications.`,
+          async () => {
+            try {
+              setLoading(true)
+              await gamesApi.delete(gameId)
+              toast.success('Game deleted!')
+              if (selectedGame?.gameId === gameId) {
+                setSelectedGame(null)
+              }
+              onRefresh()
+            } catch (error) {
+              console.error('Delete game failed:', error)
+              toast.error('Failed to delete game')
+            } finally {
+              setLoading(false)
+            }
+          },
+          'danger'
+        )
       }
-      
-      onRefresh()
-    } catch (error) {
-      console.error('Game action failed:', error)
-      toast.error('Action failed. Please try again.')
-    } finally {
-      setLoading(false)
+    }
+
+    if (actions[action as keyof typeof actions]) {
+      actions[action as keyof typeof actions]()
     }
   }
 
-  const handleApplicationAction = async (applicationId: string, action: 'accept' | 'decline') => {
-    try {
-      setLoading(true)
-      
-      if (action === 'accept') {
-        await applicationsApi.accept(applicationId, user.id || '')
-        toast.success('Application accepted!')
-      } else {
-        await applicationsApi.reject(applicationId, user.id || '')
-        toast.success('Application declined!')
-      }
-      
-      onRefresh()
-    } catch (error) {
-      console.error('Application action failed:', error)
-      toast.error('Action failed. Please try again.')
-    } finally {
-      setLoading(false)
+  const handleTeamVerification = async (teamId: string, canRoll: boolean) => {
+    // Look for team in both gameTeams and global teams
+    const team = gameTeams.find(t => t.teamId === teamId) || 
+                 teams.find(t => t.teamId === teamId)
+    if (!team) {
+      toast.error('Team not found')
+      return
+    }
+
+    const action = canRoll ? 'verify' : 'unverify'
+    const message = canRoll 
+      ? `Allow team "${team.teamName}" to roll dice?`
+      : `Prevent team "${team.teamName}" from rolling dice?`
+
+    showConfirmDialog(
+      `${action.charAt(0).toUpperCase() + action.slice(1)} Team`,
+      message,
+      async () => {
+        try {
+          setLoading(true)
+          await teamsApi.setVerification(teamId, canRoll)
+          toast.success(`Team ${action}ed!`)
+          if (selectedGame) {
+            loadGameData(selectedGame.gameId)
+          }
+          // Force board refresh if we're viewing the board
+          if (activeTab === 'board') {
+            forceBoardRefresh()
+          }
+          onRefresh()
+        } catch (error) {
+          console.error('Team verification failed:', error)
+          toast.error('Failed to update team verification')
+        } finally {
+          setLoading(false)
+        }
+      },
+      canRoll ? 'info' : 'warning'
+    )
+  }
+
+  const handleApplicationAction = async (applicationId: string, action: 'accept' | 'reject', notes?: string) => {
+    // Look for application in both arrays - prioritize the full list
+    const application = applications.find(a => a.applicationId === applicationId) ||
+                       gameApplications.find(a => a.applicationId === applicationId)
+    
+    console.log('Looking for application:', applicationId)
+    console.log('all applications:', applications.map(a => ({ id: a.applicationId, name: a.displayName, gameId: a.gameId })))
+    console.log('gameApplications:', gameApplications.map(a => ({ id: a.applicationId, name: a.displayName, gameId: a.gameId })))
+    console.log('Found application:', application ? { id: application.applicationId, name: application.displayName, gameId: application.gameId } : null)
+    
+    if (!application) {
+      toast.error('Application not found')
+      return
+    }
+
+    // Debug: Check if user.id exists - try multiple possible ID fields
+    const userId = user?.id || (user as any)?.sub || (user as any)?.userId
+    if (!userId) {
+      console.error('User ID is missing. User object:', user)
+      toast.error('User authentication issue. Please refresh the page.')
+      return
+    }
+
+    showConfirmDialog(
+      `${action.charAt(0).toUpperCase() + action.slice(1)} Application`,
+      `Are you sure you want to ${action} ${application.displayName}'s application for "${games.find(g => g.gameId === application.gameId)?.name || 'Unknown Game'}"?`,
+      async () => {
+        try {
+          setLoading(true)
+          console.log(`Attempting to ${action} application:`, applicationId, 'by user:', userId)
+          
+          if (action === 'accept') {
+            await applicationsApi.accept(applicationId, userId, notes)
+          } else {
+            await applicationsApi.reject(applicationId, userId, notes)
+          }
+          
+          toast.success(`Application ${action}ed!`)
+          
+          // Refresh both game-specific and global data
+          if (selectedGame) {
+            await loadGameData(selectedGame.gameId)
+          }
+          onRefresh() // This should refresh the global applications list
+        } catch (error: any) {
+          console.error(`Application ${action} failed:`, error)
+          
+          // More detailed error logging
+          if (error.response) {
+            console.error('Error response:', error.response.data)
+            console.error('Error status:', error.response.status)
+            toast.error(`Failed to ${action} application: ${error.response.data?.error || error.message}`)
+          } else {
+            toast.error(`Failed to ${action} application: ${error.message}`)
+          }
+        } finally {
+          setLoading(false)
+        }
+      },
+      action === 'reject' ? 'warning' : 'info'
+    )
+  }
+
+  const getGameStats = () => {
+    return {
+      totalGames: games.length,
+      activeGames: games.filter(g => g.status === 'active').length,
+      registrationGames: games.filter(g => g.status === 'registration').length,
+      totalTeams: teams.length,
+      pendingApplications: applications.filter(a => a.status === 'pending').length
     }
   }
 
-  const createNewGame = () => {
-    router.push('/create-game')
-  }
+  const stats = getGameStats()
 
   const tabConfig = {
-    games: { icon: Gamepad2, label: 'Games', count: games.length },
-    teams: { icon: Users, label: 'Teams', count: teams.length },
-    applications: { icon: UserCheck, label: 'Applications', count: applications.length }
+    'games': { icon: Gamepad2, label: 'Game Management', count: games.length },
+    'teams': { icon: Users, label: 'Team Management', count: teams.length },
+    'applications': { icon: Send, label: 'Applications', count: applications.filter(a => a.status === 'pending').length },
+    'board': { icon: Eye, label: 'Board Viewer', count: selectedGame ? 1 : 0 }
   }
 
   return (
@@ -111,15 +439,64 @@ export default function AdminDashboard({
             <h1 className="text-3xl font-bold text-white">
               Admin Dashboard
             </h1>
-            {process.env.DEV_MODE === 'true' && (
-              <span className="bg-yellow-600 text-yellow-100 px-2 py-1 rounded-md text-sm font-medium">
-                👑 DEV: Admin View
+            {process.env.NEXT_PUBLIC_DEV_MODE === 'true' && (
+              <span className="bg-red-600 text-red-100 px-2 py-1 rounded-md text-sm font-medium">
+                🛡️ DEV: Admin View
               </span>
             )}
           </div>
           <p className="text-gray-300">
-            Welcome back, {user.name}! Manage your Snakes & Ladders games.
+            Welcome back, {user.name}! Manage games, teams, and monitor all activities.
           </p>
+        </div>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-blue-600/20 border border-blue-600/50 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Gamepad2 className="w-8 h-8 text-blue-400" />
+              <div>
+                <div className="text-2xl font-bold text-white">{stats.totalGames}</div>
+                <div className="text-sm text-blue-300">Total Games</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-green-600/20 border border-green-600/50 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Play className="w-8 h-8 text-green-400" />
+              <div>
+                <div className="text-2xl font-bold text-white">{stats.activeGames}</div>
+                <div className="text-sm text-green-300">Active Games</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-yellow-600/20 border border-yellow-600/50 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Users className="w-8 h-8 text-yellow-400" />
+              <div>
+                <div className="text-2xl font-bold text-white">{stats.registrationGames}</div>
+                <div className="text-sm text-yellow-300">Registration Open</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-purple-600/20 border border-purple-600/50 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Shield className="w-8 h-8 text-purple-400" />
+              <div>
+                <div className="text-2xl font-bold text-white">{stats.totalTeams}</div>
+                <div className="text-sm text-purple-300">Total Teams</div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-orange-600/20 border border-orange-600/50 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Clock className="w-8 h-8 text-orange-400" />
+              <div>
+                <div className="text-2xl font-bold text-white">{stats.pendingApplications}</div>
+                <div className="text-sm text-orange-300">Pending Apps</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -152,169 +529,682 @@ export default function AdminDashboard({
         <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-6">
           {activeTab === 'games' && (
             <div>
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-white">Games Management</h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white">Game Management</h2>
                 <button
-                  onClick={createNewGame}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center"
+                  onClick={() => window.open('/create-game', '_blank')}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                 >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Game
+                  <Plus className="w-4 h-4" />
+                  Create New Game
                 </button>
               </div>
-
-              <div className="grid gap-4">
-                {games.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <Gamepad2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No games created yet.</p>
-                  </div>
-                ) : (
-                  games.map((game) => (
-                    <div key={game.gameId} className="bg-gray-700/50 rounded-lg p-6">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="text-xl font-semibold text-white mb-2">
-                            {game.name || `Game ${game.gameId}`}
-                          </h3>
-                          <div className="space-y-1 text-sm text-gray-300">
-                            <p>Status: <span className={`font-semibold ${
-                              game.status === 'active' ? 'text-green-400' :
-                              game.status === 'pending' ? 'text-yellow-400' : 'text-gray-400'
-                            }`}>{game.status}</span></p>
-                            <p>Participants: {game.participants?.length || 0}</p>
-                            <p>Created by: {game.createdBy}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleGameAction(game.gameId, game.status === 'active' ? 'pause' : 'start')}
-                            disabled={loading}
-                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded"
-                          >
-                            {game.status === 'active' ? (
-                              <Pause className="w-4 h-4" />
-                            ) : (
-                              <Play className="w-4 h-4" />
+              
+              {games.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <Gamepad2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No games created yet.</p>
+                  <p className="text-sm mt-2">Create your first game to get started!</p>
+                </div>
+              ) : (
+                <div className="grid gap-6">
+                  {games.map((game) => {
+                    const gameTeamsCount = teams.filter(t => t.gameId === game.gameId).length
+                    const gameAppsCount = applications.filter(a => a.gameId === game.gameId && a.status === 'pending').length
+                    const acceptedAppsCount = applications.filter(a => a.gameId === game.gameId && a.status === 'accepted').length
+                    const isDevMode = localStorage.getItem('devMode') === 'true'
+                    
+                    return (
+                      <div key={game.gameId} className="bg-gray-700/50 rounded-lg p-6 border border-gray-600">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-xl font-semibold text-white">
+                                {game.name}
+                              </h3>
+                              <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                game.status === 'active' ? 'bg-green-600 text-white' :
+                                game.status === 'registration' ? 'bg-blue-600 text-white' :
+                                game.status === 'completed' ? 'bg-purple-600 text-white' :
+                                'bg-gray-600 text-white'
+                              }`}>
+                                {game.status === 'active' && <Play className="w-3 h-3 inline mr-1" />}
+                                {game.status === 'registration' && <Users className="w-3 h-3 inline mr-1" />}
+                                {game.status === 'completed' && <Trophy className="w-3 h-3 inline mr-1" />}
+                                {game.status}
+                              </div>
+                              {gameAppsCount > 0 && (
+                                <div className="bg-orange-600 text-white px-2 py-1 rounded-full text-xs font-medium">
+                                  {gameAppsCount} pending
+                                </div>
+                              )}
+                              {/* Show accepted count and readiness for game start */}
+                              {game.status === 'registration' && (
+                                <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  (!isDevMode && acceptedAppsCount < 2) ? 'bg-yellow-600 text-white' :
+                                  acceptedAppsCount === 0 ? 'bg-red-600 text-white' :
+                                  'bg-green-600 text-white'
+                                }`}>
+                                  {acceptedAppsCount} accepted
+                                  {!isDevMode && acceptedAppsCount < 2 && acceptedAppsCount > 0 && ' (need 2+)'}
+                                  {acceptedAppsCount === 0 && ' (need some)'}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Teams</div>
+                                <div className="text-lg font-bold text-white">{gameTeamsCount}</div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Max Team Size</div>
+                                <div className="text-lg font-bold text-white">{game.maxTeamSize}</div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Accepted</div>
+                                <div className={`text-lg font-bold ${
+                                  acceptedAppsCount === 0 ? 'text-red-400' :
+                                  (!isDevMode && acceptedAppsCount < 2) ? 'text-yellow-400' :
+                                  'text-green-400'
+                                }`}>
+                                  {acceptedAppsCount}
+                                </div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Snakes</div>
+                                <div className="text-lg font-bold text-yellow-400">{game.snakeCount || 0}</div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Ladders</div>
+                                <div className="text-lg font-bold text-purple-400">{game.ladderCount || 0}</div>
+                              </div>
+                            </div>
+                            
+                            {game.applicationDeadline && (
+                              <div className="text-sm text-gray-300 mb-2">
+                                <Calendar className="w-4 h-4 inline mr-1" />
+                                Deadline: {new Date(game.applicationDeadline).toLocaleDateString()}
+                              </div>
                             )}
-                          </button>
-                          <button
-                            onClick={() => handleGameAction(game.gameId, 'reset')}
-                            disabled={loading}
-                            className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-2 rounded"
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleGameAction(game.gameId, 'delete')}
-                            disabled={loading}
-                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2 ml-4">
+                            <button
+                              onClick={() => {
+                                setSelectedGame(game)
+                                setActiveTab('board')
+                              }}
+                              className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View Board
+                            </button>
+                            
+                            {game.status === 'pending' && (
+                              <button
+                                onClick={() => handleGameAction(game.gameId, 'start-registration')}
+                                disabled={loading}
+                                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                              >
+                                <Users className="w-4 h-4" />
+                                Start Registration
+                              </button>
+                            )}
+                            
+                            {game.status === 'registration' && (
+                              <button
+                                onClick={() => handleGameAction(game.gameId, 'start-game')}
+                                disabled={loading}
+                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                              >
+                                <Play className="w-4 h-4" />
+                                Start Game
+                              </button>
+                            )}
+                            
+                            {(game.status === 'active' || game.status === 'completed') && (
+                              <button
+                                onClick={() => handleGameAction(game.gameId, 'reset')}
+                                disabled={loading}
+                                className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Reset Game
+                              </button>
+                            )}
+                            
+                            <button
+                              onClick={() => handleGameAction(game.gameId, 'delete')}
+                              disabled={loading}
+                              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      
-                      {game.participants && game.participants.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-gray-600">
-                          <h4 className="text-sm font-semibold text-gray-300 mb-2">Participants:</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {game.participants.map((participantId: string, index: number) => (
-                              <span key={index} className="bg-gray-600 text-white px-2 py-1 rounded text-xs">
-                                {participantId}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'teams' && (
             <div>
-              <h2 className="text-2xl font-bold text-white mb-6">Teams Management</h2>
-              <div className="grid gap-4">
-                {teams.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No teams found.</p>
+              <h2 className="text-2xl font-bold text-white mb-6">Team Management</h2>
+              
+              {teams.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No teams found.</p>
+                  <p className="text-sm mt-2">Teams will appear here once players start forming teams in active games.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Game Filter */}
+                  <div className="flex gap-2 mb-4">
+                    <select
+                      value={selectedGame?.gameId || ''}
+                      onChange={(e) => {
+                        const game = games.find(g => g.gameId === e.target.value)
+                        setSelectedGame(game || null)
+                      }}
+                      className="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
+                    >
+                      <option value="">All Games</option>
+                      {games.map(game => (
+                        <option key={game.gameId} value={game.gameId}>
+                          {game.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  teams.map((team) => (
-                    <div key={team.teamId} className="bg-gray-700/50 rounded-lg p-6">
-                      <h3 className="text-xl font-semibold text-white mb-2">
-                        {team.teamName}
-                      </h3>
-                      <div className="text-sm text-gray-300">
-                        <p>Members: {team.members?.length || 0}</p>
-                        <p>Game: {team.gameId || 'Not assigned'}</p>
+
+                  {/* Teams List */}
+                  {(selectedGame ? teams.filter(t => t.gameId === selectedGame.gameId) : teams).map((team) => {
+                    const game = games.find(g => g.gameId === team.gameId)
+                    
+                    return (
+                      <div key={team.teamId} className="bg-gray-700/50 rounded-lg p-6 border border-gray-600">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-lg font-semibold text-white">
+                                {team.teamName}
+                              </h3>
+                              <span className="text-sm text-gray-400">
+                                in {game?.name || 'Unknown Game'}
+                              </span>
+                              <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                team.canRoll ? 'bg-green-600 text-white' : 'bg-yellow-600 text-white'
+                              }`}>
+                                {team.canRoll ? '✓ Verified' : '⏳ Pending'}
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-3 gap-4 mb-4">
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Position</div>
+                                <div className="text-lg font-bold text-white">{team.currentPosition}/100</div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Members</div>
+                                <div className="text-lg font-bold text-white">
+                                  {1 + (team.coLeader ? 1 : 0) + (team.members?.length || 0)}
+                                </div>
+                              </div>
+                              <div className="bg-gray-800/50 rounded p-3">
+                                <div className="text-sm text-gray-300">Status</div>
+                                <div className={`text-sm font-bold ${
+                                  game?.status === 'active' ? 'text-green-400' : 'text-yellow-400'
+                                }`}>
+                                  {game?.status || 'Unknown'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Crown className="w-4 h-4 text-yellow-400" />
+                                <span className="text-white font-medium">{team.leader.displayName}</span>
+                                <span className="text-xs text-yellow-400 bg-yellow-400/20 px-2 py-1 rounded">Leader</span>
+                              </div>
+                              {team.coLeader && (
+                                <div className="flex items-center gap-2">
+                                  <Award className="w-4 h-4 text-orange-400" />
+                                  <span className="text-white font-medium">{team.coLeader.displayName}</span>
+                                  <span className="text-xs text-orange-400 bg-orange-400/20 px-2 py-1 rounded">Co-Leader</span>
+                                </div>
+                              )}
+                              {team.members?.map((member: any, index: number) => (
+                                <div key={index} className="flex items-center gap-2">
+                                  <Target className="w-4 h-4 text-gray-400" />
+                                  <span className="text-gray-300">{member.displayName}</span>
+                                  <span className="text-xs text-gray-400 bg-gray-400/20 px-2 py-1 rounded">Member</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2 ml-4">
+                            {game?.status === 'active' && (
+                              <>
+                                <button
+                                  onClick={() => handleTeamVerification(team.teamId, !team.canRoll)}
+                                  disabled={loading}
+                                  className={`px-3 py-2 rounded text-sm transition-colors flex items-center gap-2 ${
+                                    team.canRoll
+                                      ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                                      : 'bg-green-600 hover:bg-green-700 text-white'
+                                  }`}
+                                >
+                                  {team.canRoll ? (
+                                    <>
+                                      <XCircle className="w-4 h-4" />
+                                      Unverify
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle className="w-4 h-4" />
+                                      Verify
+                                    </>
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'applications' && (
             <div>
-              <h2 className="text-2xl font-bold text-white mb-6">Applications Management</h2>
-              <div className="grid gap-4">
-                {applications.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <UserCheck className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No pending applications.</p>
+              <h2 className="text-2xl font-bold text-white mb-6">Application Management</h2>
+              
+              {applications.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <Send className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No applications found.</p>
+                  <p className="text-sm mt-2">Applications will appear here when players apply to join games.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Filter by status */}
+                  <div className="flex gap-2 mb-4">
+                    <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm">All</button>
+                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Pending</button>
+                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Accepted</button>
+                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Rejected</button>
                   </div>
-                ) : (
-                  applications.map((application) => (
-                    <div key={application.applicationId} className="bg-gray-700/50 rounded-lg p-6">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="text-xl font-semibold text-white mb-2">
-                            {application.username || 'Unknown Player'}
-                          </h3>
-                          <div className="text-sm text-gray-300">
-                            <p>Game: {application.gameId}</p>
-                            <p>Status: <span className={`font-semibold ${
-                              application.status === 'pending' ? 'text-yellow-400' :
-                              application.status === 'accepted' ? 'text-green-400' : 'text-red-400'
-                            }`}>{application.status}</span></p>
+
+                  {applications.map((application) => {
+                    const game = games.find(g => g.gameId === application.gameId)
+                    
+                    return (
+                      <div key={application.applicationId} className="bg-gray-700/50 rounded-lg p-6 border border-gray-600">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-lg font-semibold text-white">
+                                {application.displayName}
+                              </h3>
+                              <span className="text-sm text-gray-400">
+                                wants to join {game?.name || 'Unknown Game'}
+                              </span>
+                              <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                application.status === 'pending' ? 'bg-yellow-600 text-white' :
+                                application.status === 'accepted' ? 'bg-green-600 text-white' :
+                                'bg-red-600 text-white'
+                              }`}>
+                                {application.status === 'pending' && <Clock className="w-3 h-3 inline mr-1" />}
+                                {application.status === 'accepted' && <CheckCircle className="w-3 h-3 inline mr-1" />}
+                                {application.status === 'rejected' && <XCircle className="w-3 h-3 inline mr-1" />}
+                                {application.status}
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm text-gray-300 space-y-1">
+                              <p>Username: {application.username}</p>
+                              <p>Applied: {new Date(application.appliedAt).toLocaleDateString()}</p>
+                              {application.reviewedAt && (
+                                <p>Reviewed: {new Date(application.reviewedAt).toLocaleDateString()}</p>
+                              )}
+                            </div>
+                            
+                            {application.notes && (
+                              <div className="mt-3 p-3 bg-gray-600/50 rounded">
+                                <p className="text-sm text-gray-300">
+                                  <strong>Notes:</strong> {application.notes}
+                                </p>
+                              </div>
+                            )}
                           </div>
+                          
+                          {application.status === 'pending' && (
+                            <div className="flex gap-2 ml-4">
+                              <button
+                                onClick={() => handleApplicationAction(application.applicationId, 'accept')}
+                                disabled={loading}
+                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleApplicationAction(application.applicationId, 'reject')}
+                                disabled={loading}
+                                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                Reject
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        
-                        {application.status === 'pending' && (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleApplicationAction(application.applicationId, 'accept')}
-                              disabled={loading}
-                              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded flex items-center"
-                            >
-                              <UserCheck className="w-4 h-4 mr-1" />
-                              Accept
-                            </button>
-                            <button
-                              onClick={() => handleApplicationAction(application.applicationId, 'decline')}
-                              disabled={loading}
-                              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded flex items-center"
-                            >
-                              <UserX className="w-4 h-4 mr-1" />
-                              Decline
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  ))
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Board View Tab */}
+          {activeTab === 'board' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">Board Viewer & Game Monitor</h2>
+                {selectedGame && (
+                  <div className="text-sm text-gray-300">
+                    Monitoring: {selectedGame.name}
+                  </div>
                 )}
               </div>
+
+              {!selectedGame ? (
+                <div className="text-center py-12">
+                  <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No game selected</p>
+                  <p className="text-sm text-gray-400">Go to "Game Management" and click "View Board" on any game</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Admin Controls */}
+                  <div className="bg-red-600/20 border border-red-600/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <Shield className="w-5 h-5" />
+                      Admin Controls
+                    </h3>
+                    
+                    <div className="flex gap-3">
+                      {selectedGame.status === 'pending' && (
+                        <button
+                          onClick={() => handleGameAction(selectedGame.gameId, 'start-registration')}
+                          disabled={loading}
+                          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded transition-colors flex items-center gap-2"
+                        >
+                          <Users className="w-4 h-4" />
+                          Start Registration
+                        </button>
+                      )}
+                      
+                      {selectedGame.status === 'registration' && (
+                        <button
+                          onClick={() => handleGameAction(selectedGame.gameId, 'start-game')}
+                          disabled={loading}
+                          className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded transition-colors flex items-center gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          Start Game
+                        </button>
+                      )}
+                      
+                      {(selectedGame.status === 'active' || selectedGame.status === 'completed') && (
+                        <button
+                          onClick={() => handleGameAction(selectedGame.gameId, 'reset')}
+                          disabled={loading}
+                          className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-4 py-2 rounded transition-colors flex items-center gap-2"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          Reset Game
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={() => handleGameAction(selectedGame.gameId, 'delete')}
+                        disabled={loading}
+                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded transition-colors flex items-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Game
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Game Stats */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5" />
+                      Game Statistics
+                    </h3>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-white">{gameTeams.length}</div>
+                        <div className="text-sm text-gray-300">Total Teams</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-400">
+                          {gameTeams.filter(t => t.canRoll).length}
+                        </div>
+                        <div className="text-sm text-gray-300">Verified Teams</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-yellow-400">
+                          {selectedGame.snakeCount || 0}
+                        </div>
+                        <div className="text-sm text-gray-300">Snakes</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-purple-400">
+                          {selectedGame.ladderCount || 0}
+                        </div>
+                        <div className="text-sm text-gray-300">Ladders</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-orange-400">
+                          {gameApplications.filter(a => a.status === 'pending').length}
+                        </div>
+                        <div className="text-sm text-gray-300">Pending Apps</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-blue-400">
+                          {gameApplications.filter(a => a.status === 'accepted').length}
+                        </div>
+                        <div className="text-sm text-gray-300">Accepted Apps</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-white">
+                          {selectedGame.maxTeamSize}
+                        </div>
+                        <div className="text-sm text-gray-300">Max Team Size</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-cyan-400">
+                          {Math.max(...gameTeams.map(t => t.currentPosition), 0)}
+                        </div>
+                        <div className="text-sm text-gray-300">Furthest Position</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Teams Management */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <Trophy className="w-5 h-5" />
+                      Team Leaderboard & Verification
+                    </h3>
+                    
+                    {loading ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                        <p className="text-gray-300 mt-2">Loading teams...</p>
+                      </div>
+                    ) : gameTeams.length === 0 ? (
+                      <p className="text-gray-300 text-center py-8">No teams found for this game</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {gameTeams
+                          .sort((a, b) => b.currentPosition - a.currentPosition)
+                          .map((team, index) => (
+                            <div
+                              key={team.teamId}
+                              className="flex items-center justify-between p-4 rounded-lg bg-gray-800/50"
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                                  index === 0 ? 'bg-yellow-500 text-black' :
+                                  index === 1 ? 'bg-gray-400 text-black' :
+                                  index === 2 ? 'bg-orange-600 text-white' :
+                                  'bg-gray-600 text-white'
+                                }`}>
+                                  {index + 1}
+                                </div>
+                                <div>
+                                  <div className="font-medium text-white flex items-center gap-2">
+                                    {team.teamName}
+                                    {team.canRoll ? (
+                                      <span className="text-xs bg-green-600 text-white px-2 py-1 rounded">VERIFIED</span>
+                                    ) : (
+                                      <span className="text-xs bg-yellow-600 text-white px-2 py-1 rounded">PENDING</span>
+                                    )}
+                                  </div>
+                                  <div className="text-sm text-gray-300">
+                                    Leader: {team.leader.displayName} | Members: {1 + (team.coLeader ? 1 : 0) + (team.members?.length || 0)}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <div className="text-lg font-bold text-white">
+                                    Position {team.currentPosition}
+                                  </div>
+                                </div>
+                                
+                                {selectedGame.status === 'active' && (
+                                  <button
+                                    onClick={() => handleTeamVerification(team.teamId, !team.canRoll)}
+                                    disabled={loading}
+                                    className={`px-3 py-2 rounded text-sm transition-colors flex items-center gap-2 ${
+                                      team.canRoll
+                                        ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                                        : 'bg-green-600 hover:bg-green-700 text-white'
+                                    }`}
+                                  >
+                                    {team.canRoll ? (
+                                      <>
+                                        <XCircle className="w-4 h-4" />
+                                        Unverify
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle className="w-4 h-4" />
+                                        Verify
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Board Image */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white">Live Game Board</h3>
+                      <button
+                        onClick={forceBoardRefresh}
+                        disabled={loading || boardLoading}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                      >
+                        <RotateCcw className={`w-4 h-4 ${boardLoading ? 'animate-spin' : ''}`} />
+                        {boardLoading ? 'Refreshing...' : 'Refresh Board'}
+                      </button>
+                    </div>
+                    <div className="flex justify-center">
+                      <img
+                        src={`${process.env.NEXT_PUBLIC_API_URL}/api/games/${selectedGame.gameId}/board?t=${boardImageKey}`}
+                        alt={`${selectedGame.name} Board`}
+                        className="max-w-full h-auto rounded-lg border border-gray-600"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          target.style.display = 'none'
+                          target.parentElement!.innerHTML = '<div class="text-gray-400 text-center py-8">Board image not available</div>'
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 text-center mt-2 flex items-center justify-center gap-2">
+                      <span className="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                      Board updates automatically every 10 seconds when teams move
+                      {boardLoading && <span className="text-blue-400">(Updating...)</span>}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Confirmation Dialog */}
+        {confirmDialog.isOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                {confirmDialog.type === 'danger' && <AlertTriangle className="w-5 h-5 text-red-400" />}
+                {confirmDialog.type === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-400" />}
+                {confirmDialog.type === 'info' && <Zap className="w-5 h-5 text-blue-400" />}
+                {confirmDialog.title}
+              </h3>
+              <p className="text-gray-300 mb-6">{confirmDialog.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    confirmDialog.action()
+                    setConfirmDialog({ ...confirmDialog, isOpen: false })
+                  }}
+                  className={`flex-1 py-2 px-4 rounded transition-colors ${
+                    confirmDialog.type === 'danger' ? 'bg-red-600 hover:bg-red-700' :
+                    confirmDialog.type === 'warning' ? 'bg-yellow-600 hover:bg-yellow-700' :
+                    'bg-blue-600 hover:bg-blue-700'
+                  } text-white`}
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

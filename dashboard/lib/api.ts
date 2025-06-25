@@ -91,7 +91,12 @@ export const teamsApi = {
   async getAllByUser(userId: string): Promise<Team[]> {
     const response = await api.get(`/api/users/${userId}/teams`)
     return response.data
-  }
+  },
+
+  async setVerification(teamId: string, canRoll: boolean): Promise<Team> {
+    const response = await api.post(`/api/teams/${teamId}/verify`, { canRoll })
+    return response.data
+  },
 }
 
 // Applications API
@@ -112,6 +117,7 @@ export const applicationsApi = {
   },
 
   async accept(applicationId: string, reviewerId: string, notes?: string): Promise<Application> {
+    console.log('API: Accepting application:', { applicationId, reviewerId, notes })
     const response = await api.post(`/api/applications/${applicationId}/accept`, {
       reviewerId,
       notes
@@ -120,6 +126,7 @@ export const applicationsApi = {
   },
 
   async reject(applicationId: string, reviewerId: string, notes?: string): Promise<Application> {
+    console.log('API: Rejecting application:', { applicationId, reviewerId, notes })
     const response = await api.post(`/api/applications/${applicationId}/reject`, {
       reviewerId,
       notes

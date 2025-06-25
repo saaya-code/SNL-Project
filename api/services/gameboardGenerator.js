@@ -29,6 +29,18 @@ async function convertImageToDataUrl(imageUrl, maxSize = 140) {
       return imageUrl;
     }
 
+    // Skip blob URLs as they should have been converted client-side
+    if (imageUrl.startsWith('blob:')) {
+      console.warn(`Blob URL detected (should be converted client-side): ${imageUrl}`);
+      return null;
+    }
+
+    // Only convert external URLs (http/https)
+    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+      console.warn(`Unsupported URL protocol: ${imageUrl}`);
+      return null;
+    }
+
     console.log(`Converting external image to data URL: ${imageUrl}`);
     
     // Fetch the image using native http/https modules
@@ -116,12 +128,22 @@ async function createGameBoardSVG(game, teams) {
   // Handle both game.tileTasks and game.gameParameters.tileTasks structures
   const tileTasks = Object.fromEntries(game.tileTasks || game.gameParameters?.tileTasks || new Map());
   
-  // Pre-process images: convert external URLs to data URLs
+  // Pre-process images: handle external URLs and validate data URLs
   console.log('Pre-processing images...');
   for (const [tileNumber, task] of Object.entries(tileTasks)) {
     if (task && (task.imageUrl || task.uploadedImageUrl)) {
       const imageUrl = task.uploadedImageUrl || task.imageUrl;
-      if (!imageUrl.startsWith('data:')) {
+      
+      if (imageUrl.startsWith('data:')) {
+        // Already a data URL from client-side conversion, use as-is
+        console.log(`✅ Using client-converted data URL for tile ${tileNumber}`);
+      } else if (imageUrl.startsWith('blob:')) {
+        // This shouldn't happen if client-side conversion is working properly
+        console.warn(`❌ Blob URL detected for tile ${tileNumber} - removing image`);
+        delete task.imageUrl;
+        delete task.uploadedImageUrl;
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // External URL, try to convert it
         const dataUrl = await convertImageToDataUrl(imageUrl);
         if (dataUrl) {
           if (task.uploadedImageUrl) {
@@ -129,13 +151,16 @@ async function createGameBoardSVG(game, teams) {
           } else {
             task.imageUrl = dataUrl;
           }
-          console.log(`✅ Converted image for tile ${tileNumber}`);
+          console.log(`✅ Converted external URL to data URL for tile ${tileNumber}`);
         } else {
-          console.log(`❌ Failed to convert image for tile ${tileNumber}, skipping image`);
-          // Remove the image URLs if conversion failed
+          console.log(`❌ Failed to convert external URL for tile ${tileNumber}, removing image`);
           delete task.imageUrl;
           delete task.uploadedImageUrl;
         }
+      } else {
+        console.warn(`❌ Unknown image URL format for tile ${tileNumber}: ${imageUrl.substring(0, 50)}...`);
+        delete task.imageUrl;
+        delete task.uploadedImageUrl;
       }
     }
   }
