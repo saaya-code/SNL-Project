@@ -6,7 +6,7 @@ import { MongoClient } from 'mongodb'
 const client = new MongoClient(process.env.MONGO_URI!)
 const clientPromise = client.connect()
 
-export const authOptions = {
+const authOptions = {
   // Remove adapter when using JWT strategy
   // adapter: MongoDBAdapter(clientPromise),
   providers: [
