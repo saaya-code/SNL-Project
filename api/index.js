@@ -607,6 +607,11 @@ app.post('/api/teams/:teamId/verify', async (req, res) => {
   }
 });
 
+app.get("/health-check", (req, res) => {
+  console.log("Health check endpoint hit");
+  res.status(200).json({ status: "OK" });
+});
+
 app.listen(PORT, () => {
   console.log(`SNL API server running on port ${PORT}`);
 });
