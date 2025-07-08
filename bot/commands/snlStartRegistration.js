@@ -24,7 +24,7 @@ export default {
 
     try {
       // Find all pending games
-      const pendingGames = await Game.find({ status: 'pending' });
+      const pendingGames = await Game.find({ status: { $in: ['pending', 'registration'] } });
       
       if (pendingGames.length === 0) {
         return await interaction.editReply({ 
@@ -33,20 +33,22 @@ export default {
         });
       }
 
-      if (pendingGames.length > 1) {
-        return await interaction.editReply({ 
-          content: `❌ Multiple pending games found. Please ensure only one game is pending at a time. Found: ${pendingGames.map(g => `**${g.name}**`).join(', ')}`,
-          flags: 64 
-        });
-      }
+      // if (pendingGames.length > 1) {
+      //   return await interaction.editReply({ 
+      //     content: `❌ Multiple pending games found. Please ensure only one game is pending at a time. Found: ${pendingGames.map(g => `**${g.name}**`).join(', ')}`,
+      //     flags: 64 
+      //   });
+      // }
 
       // Use the single pending game
       const game = pendingGames[0];
 
       // Update game status to registration
-      game.status = 'registration';
-      game.maxTeamSize = teamSize;
-      await game.save();
+      if(game.status != 'registration') {
+        game.status = 'registration';
+        game.maxTeamSize = teamSize;
+        await game.save();
+      }
 
       // Create registration embed
       const isDevelopmentMode = process.env.DEV_MODE === 'true';

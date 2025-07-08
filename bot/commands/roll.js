@@ -1,7 +1,102 @@
-import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, ChannelType } from 'discord.js';
 import Team from '../models/Team.js';
 import Game from '../models/Game.js';
 import axios from 'axios';
+
+// Helper function to create a proper team channel
+async function createTeamChannel(guild, team) {
+  try {
+    // Find or create "Team Rooms" category
+    let category = guild.channels.cache.find(
+      channel => channel.type === ChannelType.GuildCategory && 
+                 channel.name.toLowerCase() === 'team rooms'
+    );
+    
+    if (!category) {
+      category = await guild.channels.create({
+        name: 'Team Rooms',
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone,
+            deny: ['ViewChannel'],
+          }
+        ]
+      });
+    }
+    
+    // Create channel name from team name (sanitized)
+    const channelName = team.teamName.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '') // Remove special characters
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .substring(0, 100); // Discord channel name limit
+    
+    // Create the channel under the Team Rooms category
+    const channel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent: category.id,
+      topic: `Team channel for ${team.teamName} - Snakes & Ladders Game`,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone,
+          deny: ['ViewChannel'],
+        }
+      ]
+    });
+
+    // Get all team members' Discord IDs
+    const memberIds = [];
+    
+    // Add leader
+    if (team.leader && team.leader.userId) {
+      memberIds.push(team.leader.userId);
+    }
+    
+    // Add co-leader if exists and different from leader
+    if (team.coLeader && team.coLeader.userId && team.coLeader.userId !== team.leader.userId) {
+      memberIds.push(team.coLeader.userId);
+    }
+    
+    // Add other members
+    if (team.members && Array.isArray(team.members)) {
+      team.members.forEach(member => {
+        if (member.userId && !memberIds.includes(member.userId)) {
+          memberIds.push(member.userId);
+        }
+      });
+    }
+
+    // Add permissions for team members
+    for (const userId of memberIds) {
+      try {
+        await channel.permissionOverwrites.create(userId, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+          UseApplicationCommands: true
+        });
+      } catch (err) {
+        console.error(`Failed to add permissions for user ${userId}:`, err);
+      }
+    }
+
+    // Send welcome message
+    const memberMentions = memberIds.map(id => `<@${id}>`).join(', ');
+    await channel.send({
+      content: `🎉 Welcome to your team channel, **${team.teamName}**!\n\n` +
+               `Team Members: ${memberMentions}\n\n` +
+               `🎲 Use \`/roll\` to roll the dice when it's your turn!\n` +
+               `📍 Current Position: **Tile ${team.currentPosition}**\n\n` +
+               `Good luck in the Snakes & Ladders game! 🐍🪜`
+    });
+
+    return channel;
+  } catch (error) {
+    console.error('Error creating team channel:', error);
+    throw error;
+  }
+}
 
 export default {
   data: new SlashCommandBuilder()
@@ -74,6 +169,21 @@ export default {
       // Update team position and lock rolling
       team.currentPosition = newPosition;
       team.canRoll = false;
+
+      // If this is a dashboard team without a proper channel, create one
+      if (team.channelId === 'dashboard-team') {
+        try {
+          // Create a proper team channel
+          const channel = await createTeamChannel(interaction.guild, team);
+          if (channel) {
+            team.channelId = channel.id;
+            console.log(`Created channel ${channel.id} for dashboard team ${team.teamName}`);
+          }
+        } catch (error) {
+          console.log('Could not create channel for dashboard team:', error);
+        }
+      }
+
       await team.save();
 
       // Get current tile task
@@ -167,9 +277,9 @@ export default {
         const allTeams = await Team.find({ gameId: game.gameId });
         
         // Send to SNL announcements channel first
-        if (game.announcementsChannelId) {
+        if (game.announcementChannelId) {
           try {
-            const announcementsChannel = await interaction.guild.channels.fetch(game.announcementsChannelId);
+            const announcementsChannel = await interaction.guild.channels.fetch(game.announcementChannelId);
             if (announcementsChannel) {
               const announcementEmbed = new EmbedBuilder()
                 .setTitle(`🎲 ${team.teamName} Rolled!`)
@@ -182,7 +292,7 @@ export default {
               }
 
               // Add win condition
-              if (newPosition === 100) {
+              if (newPosition >= 100) {
                 announcementEmbed.addFields({ 
                   name: '🏆 VICTORY!', 
                   value: `**${team.teamName}** has reached tile 100 and won the game! 🎉` 
@@ -243,7 +353,10 @@ export default {
         
         // Send to all other team channels (not the current one)
         for (const otherTeam of allTeams) {
-          if (otherTeam.channelId !== interaction.channelId && otherTeam.teamId !== team.teamId) {
+          if (otherTeam.channelId !== interaction.channelId && 
+              otherTeam.teamId !== team.teamId && 
+              otherTeam.channelId !== 'dashboard-team' && 
+              otherTeam.channelId) {
             try {
               const otherTeamChannel = await interaction.guild.channels.fetch(otherTeam.channelId);
               if (otherTeamChannel) {
@@ -275,7 +388,9 @@ export default {
       }
 
       // If this is NOT a team channel, also post in the current team's channel
-      if (interaction.channelId !== team.channelId) {
+      if (interaction.channelId !== team.channelId && 
+          team.channelId !== 'dashboard-team' && 
+          team.channelId) {
         try {
           const teamChannel = await interaction.guild.channels.fetch(team.channelId);
           if (teamChannel) {

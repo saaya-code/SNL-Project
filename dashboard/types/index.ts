@@ -20,6 +20,8 @@ export interface Game {
   name: string
   status: 'pending' | 'registration' | 'active' | 'completed'
   channelId?: string
+  announcementChannelId?: string
+  announcementWebhookUrl?: string
   tileTasks: Record<string, TaskData>
   snakes: Record<string, number>
   ladders: Record<string, number>

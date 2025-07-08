@@ -232,8 +232,15 @@ client.on(Events.MessageCreate, async message => {
 });
 
 
+import { EmbedBuilder } from 'discord.js';
+import { setClientInstance } from './helpers/announcementHelpers.js';
+import './api-server.js'; // Start the API server
+
 client.once(Events.ClientReady, (client) => {
     console.log(`Logged in as ${client.user.tag}!`);
+    
+    // Store client instance for announcement helpers
+    setClientInstance(client);
 });
 
 

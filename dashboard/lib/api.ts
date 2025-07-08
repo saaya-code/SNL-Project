@@ -53,9 +53,27 @@ export const gamesApi = {
     return response.data
   },
 
+  async distributeTeams(gameId: string): Promise<{ teams: Team[], acceptedApplications: number, devMode: boolean }> {
+    const response = await api.post(`/api/games/${gameId}/distribute-teams`)
+    return response.data
+  },
+
+  async startGameWithTeams(gameId: string, teams: Team[]): Promise<Game> {
+    const response = await api.post(`/api/games/${gameId}/start-with-teams`, { teams })
+    return response.data
+  },
+
   async resetGame(gameId: string, resetType: string): Promise<Game> {
     const response = await api.post(`/api/games/${gameId}/reset`, {
       resetType
+    })
+    return response.data
+  },
+
+  async updateAnnouncementChannel(gameId: string, announcementChannelId?: string, announcementWebhookUrl?: string): Promise<Game> {
+    const response = await api.put(`/api/games/${gameId}/announcement-channel`, {
+      announcementChannelId,
+      announcementWebhookUrl
     })
     return response.data
   }
@@ -95,6 +113,23 @@ export const teamsApi = {
 
   async setVerification(teamId: string, canRoll: boolean): Promise<Team> {
     const response = await api.post(`/api/teams/${teamId}/verify`, { canRoll })
+    return response.data
+  },
+
+  async updateMembers(teamId: string, members: any[], leader?: any, coLeader?: any): Promise<Team> {
+    const response = await api.put(`/api/teams/${teamId}/members`, { members, leader, coLeader })
+    return response.data
+  },
+
+  async exchangeMembers(sourceTeamId: string, targetTeamId: string, memberToMove: any): Promise<{
+    sourceTeam: Team
+    targetTeam: Team
+  }> {
+    const response = await api.put('/api/teams/exchange', {
+      sourceTeamId,
+      targetTeamId,
+      memberToMove
+    })
     return response.data
   },
 }

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { gamesApi, teamsApi, applicationsApi } from '@/lib/api'
 import { toast } from 'react-hot-toast'
+import TeamDistributionEditor from '@/components/ui/team-distribution-editor'
 
 interface AdminDashboardProps {
   games: Game[]
@@ -55,6 +56,20 @@ export default function AdminDashboard({
   const [loading, setLoading] = useState(false)
   const [boardImageKey, setBoardImageKey] = useState<number>(Date.now())
   const [boardLoading, setBoardLoading] = useState(false)
+  const [teamManagementMode, setTeamManagementMode] = useState(false)
+  const [selectedMember, setSelectedMember] = useState<any>(null)
+  const [draggedMember, setDraggedMember] = useState<any>(null)
+  const [announcementChannelId, setAnnouncementChannelId] = useState('')
+  const [announcementWebhookUrl, setAnnouncementWebhookUrl] = useState('')
+  const [teamDistributionDialog, setTeamDistributionDialog] = useState<{
+    isOpen: boolean
+    distributedTeams: Team[]
+    gameData: any
+  }>({
+    isOpen: false,
+    distributedTeams: [],
+    gameData: null
+  })
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean
     title: string
@@ -80,6 +95,9 @@ export default function AdminDashboard({
   useEffect(() => {
     if (selectedGame) {
       loadGameData(selectedGame.gameId)
+      // Update announcement channel input when game is selected
+      setAnnouncementChannelId(selectedGame.announcementChannelId || '')
+      setAnnouncementWebhookUrl(selectedGame.announcementWebhookUrl || '')
     }
   }, [selectedGame])
 
@@ -193,26 +211,18 @@ export default function AdminDashboard({
           }
         }
 
-        const showStartGameDialog = async () => {
+        const showTeamDistributionDialog = async () => {
           const acceptedCount = await getAcceptedCount()
           const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === 'true' || localStorage.getItem('devMode') === 'true'
           
-          let message = `Are you sure you want to start the game "${game.name}"? This will begin the actual gameplay and teams can start rolling dice.`
-          
           if (!isDevMode && acceptedCount < 2) {
-            message += `\n\n⚠️ Warning: Only ${acceptedCount} accepted participant(s) found. At least 2 participants are required to start the game in normal mode.`
-            
             showConfirmDialog(
               'Cannot Start Game',
-              message,
+              `Only ${acceptedCount} accepted participant(s) found. At least 2 participants are required to start the game in normal mode.`,
               () => {}, // No action
               'danger'
             )
             return
-          }
-          
-          if (isDevMode && acceptedCount === 1) {
-            message += `\n\n🔧 Dev Mode: Starting with 1 participant. A single team will be created.`
           }
           
           if (acceptedCount === 0) {
@@ -225,37 +235,26 @@ export default function AdminDashboard({
             return
           }
 
-          showConfirmDialog(
-            'Start Game',
-            message,
-            async () => {
-              try {
-                setLoading(true)
-                const result = await gamesApi.startGame(gameId)
-                
-                let successMessage = 'Game started!'
-                if (result.teamsCreated) {
-                  successMessage += ` ${result.teamsCreated.length} team(s) created from ${result.acceptedApplications} participants.`
-                }
-                if (result.devMode && result.acceptedApplications === 1) {
-                  successMessage += ' (Dev Mode: Single team created)'
-                }
-                
-                toast.success(successMessage)
-                onRefresh()
-              } catch (error: any) {
-                console.error('Start game failed:', error)
-                const errorMessage = error.response?.data?.error || 'Failed to start game'
-                toast.error(errorMessage)
-              } finally {
-                setLoading(false)
-              }
-            },
-            'warning'
-          )
+          // Distribute teams and show dialog
+          try {
+            setLoading(true)
+            const result = await gamesApi.distributeTeams(gameId)
+            
+            setTeamDistributionDialog({
+              isOpen: true,
+              distributedTeams: result.teams,
+              gameData: { gameId, acceptedApplications: result.acceptedApplications, devMode: result.devMode }
+            })
+          } catch (error: any) {
+            console.error('Team distribution failed:', error)
+            const errorMessage = error.response?.data?.error || 'Failed to distribute teams'
+            toast.error(errorMessage)
+          } finally {
+            setLoading(false)
+          }
         }
 
-        showStartGameDialog()
+        showTeamDistributionDialog()
       },
       'reset': () => {
         showConfirmDialog(
@@ -422,6 +421,79 @@ export default function AdminDashboard({
   }
 
   const stats = getGameStats()
+
+  const handleTeamMemberExchange = async (sourceTeamId: string, targetTeamId: string, memberToMove: any) => {
+    if (!selectedGame || selectedGame.status === 'active') {
+      toast.error('Cannot modify teams after game has started')
+      return
+    }
+
+    const sourceTeam = gameTeams.find(t => t.teamId === sourceTeamId)
+    const targetTeam = gameTeams.find(t => t.teamId === targetTeamId)
+    
+    if (!sourceTeam || !targetTeam) {
+      toast.error('Teams not found')
+      return
+    }
+
+    showConfirmDialog(
+      'Exchange Team Member',
+      `Move ${memberToMove.displayName} from ${sourceTeam.teamName} to ${targetTeam.teamName}?`,
+      async () => {
+        try {
+          setLoading(true)
+          await teamsApi.exchangeMembers(sourceTeamId, targetTeamId, memberToMove)
+          toast.success('Team member exchanged successfully!')
+          loadGameData(selectedGame.gameId)
+        } catch (error) {
+          console.error('Team member exchange failed:', error)
+          toast.error('Failed to exchange team member')
+        } finally {
+          setLoading(false)
+        }
+      },
+      'info'
+    )
+  }
+
+  const handleAnnouncementChannelUpdate = async () => {
+    if (!selectedGame) {
+      toast.error('Please select a game first')
+      return
+    }
+
+    try {
+      setLoading(true)
+      await gamesApi.updateAnnouncementChannel(
+        selectedGame.gameId, 
+        announcementChannelId.trim() || undefined, 
+        announcementWebhookUrl.trim() || undefined
+      )
+      toast.success('Announcement settings updated!')
+      onRefresh()
+    } catch (error) {
+      console.error('Failed to update announcement settings:', error)
+      toast.error('Failed to update announcement settings')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDragStart = (e: React.DragEvent, member: any, teamId: string) => {
+    setDraggedMember({ ...member, sourceTeamId: teamId })
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+  }
+
+  const handleDrop = (e: React.DragEvent, targetTeamId: string) => {
+    e.preventDefault()
+    if (draggedMember && draggedMember.sourceTeamId !== targetTeamId) {
+      handleTeamMemberExchange(draggedMember.sourceTeamId, targetTeamId, draggedMember)
+    }
+    setDraggedMember(null)
+  }
 
   const tabConfig = {
     'games': { icon: Gamepad2, label: 'Game Management', count: games.length },
@@ -694,9 +766,87 @@ export default function AdminDashboard({
 
           {activeTab === 'teams' && (
             <div>
-              <h2 className="text-2xl font-bold text-white mb-6">Team Management</h2>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-white">Team Management</h2>
+                {selectedGame && selectedGame.status !== 'active' && (
+                  <button
+                    onClick={() => setTeamManagementMode(!teamManagementMode)}
+                    className={`px-4 py-2 rounded font-medium transition-colors ${
+                      teamManagementMode 
+                        ? 'bg-green-600 hover:bg-green-700 text-white' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                  >
+                    {teamManagementMode ? 'Exit Team Management' : 'Manage Teams'}
+                  </button>
+                )}
+              </div>
               
-              {teams.length === 0 ? (
+              {selectedGame && selectedGame.status !== 'active' && (
+                <div className="bg-gray-700/50 rounded-lg p-4 mb-6 border border-gray-600">
+                  <h3 className="text-lg font-semibold text-white mb-3">Announcement Settings</h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Discord Channel ID</label>
+                      <input
+                        type="text"
+                        placeholder="Enter Discord channel ID"
+                        value={announcementChannelId}
+                        onChange={(e) => setAnnouncementChannelId(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-400"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Discord Webhook URL</label>
+                      <input
+                        type="url"
+                        placeholder="https://discord.com/api/webhooks/..."
+                        value={announcementWebhookUrl}
+                        onChange={(e) => setAnnouncementWebhookUrl(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-400"
+                      />
+                    </div>
+                    
+                    <button
+                      onClick={handleAnnouncementChannelUpdate}
+                      disabled={loading}
+                      className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded font-medium transition-colors"
+                    >
+                      {loading ? 'Updating...' : 'Update Announcement Settings'}
+                    </button>
+                  </div>
+                  
+                  <div className="mt-3 space-y-1">
+                    <p className="text-sm text-gray-400">
+                      Set the Discord channel and webhook for team roll announcements.
+                    </p>
+                    {selectedGame.announcementChannelId && (
+                      <p className="text-sm text-green-400">
+                        ✅ Channel: {selectedGame.announcementChannelId}
+                      </p>
+                    )}
+                    {selectedGame.announcementWebhookUrl && (
+                      <p className="text-sm text-green-400">
+                        ✅ Webhook: Configured
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {teamManagementMode && selectedGame && selectedGame.status !== 'active' && (
+                <div className="bg-blue-900/20 border border-blue-600/50 rounded-lg p-4 mb-6">
+                  <h3 className="text-lg font-semibold text-blue-400 mb-2">Team Management Mode</h3>
+                  <p className="text-sm text-gray-300">
+                    Drag and drop team members between teams to reorganize before starting the game.
+                    Members can only be moved between teams, not removed entirely.
+                  </p>
+                </div>
+              )}
+              
+              {(gameTeams.length === 0 && selectedGame) || (teams.length === 0 && !selectedGame) ? (
                 <div className="text-center py-12 text-gray-400">
                   <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No teams found.</p>
@@ -724,11 +874,20 @@ export default function AdminDashboard({
                   </div>
 
                   {/* Teams List */}
-                  {(selectedGame ? teams.filter(t => t.gameId === selectedGame.gameId) : teams).map((team) => {
+                  {(selectedGame ? gameTeams : teams).map((team) => {
                     const game = games.find(g => g.gameId === team.gameId)
                     
                     return (
-                      <div key={team.teamId} className="bg-gray-700/50 rounded-lg p-6 border border-gray-600">
+                      <div 
+                        key={team.teamId} 
+                        className={`bg-gray-700/50 rounded-lg p-6 border ${
+                          teamManagementMode && selectedGame && selectedGame.status !== 'active'
+                            ? 'border-blue-500/50 hover:border-blue-400'
+                            : 'border-gray-600'
+                        }`}
+                        onDragOver={teamManagementMode ? handleDragOver : undefined}
+                        onDrop={teamManagementMode ? (e) => handleDrop(e, team.teamId) : undefined}
+                      >
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
@@ -767,23 +926,55 @@ export default function AdminDashboard({
                             </div>
 
                             <div className="space-y-2">
-                              <div className="flex items-center gap-2">
+                              <div className={`flex items-center gap-2 ${
+                                teamManagementMode && selectedGame && selectedGame.status !== 'active'
+                                  ? 'cursor-move p-2 rounded hover:bg-gray-600/50'
+                                  : ''
+                              }`}
+                                draggable={!!(teamManagementMode && selectedGame && selectedGame.status !== 'active')}
+                                onDragStart={teamManagementMode ? (e) => handleDragStart(e, team.leader, team.teamId) : undefined}
+                              >
                                 <Crown className="w-4 h-4 text-yellow-400" />
                                 <span className="text-white font-medium">{team.leader.displayName}</span>
                                 <span className="text-xs text-yellow-400 bg-yellow-400/20 px-2 py-1 rounded">Leader</span>
+                                {teamManagementMode && selectedGame && selectedGame.status !== 'active' && (
+                                  <span className="text-xs text-blue-400 ml-auto">Drag to move</span>
+                                )}
                               </div>
                               {team.coLeader && (
-                                <div className="flex items-center gap-2">
+                                <div className={`flex items-center gap-2 ${
+                                  teamManagementMode && selectedGame && selectedGame.status !== 'active'
+                                    ? 'cursor-move p-2 rounded hover:bg-gray-600/50'
+                                    : ''
+                                }`}
+                                  draggable={!!(teamManagementMode && selectedGame && selectedGame.status !== 'active')}
+                                  onDragStart={teamManagementMode ? (e) => handleDragStart(e, team.coLeader, team.teamId) : undefined}
+                                >
                                   <Award className="w-4 h-4 text-orange-400" />
                                   <span className="text-white font-medium">{team.coLeader.displayName}</span>
                                   <span className="text-xs text-orange-400 bg-orange-400/20 px-2 py-1 rounded">Co-Leader</span>
+                                  {teamManagementMode && selectedGame && selectedGame.status !== 'active' && (
+                                    <span className="text-xs text-blue-400 ml-auto">Drag to move</span>
+                                  )}
                                 </div>
                               )}
                               {team.members?.map((member: any, index: number) => (
-                                <div key={index} className="flex items-center gap-2">
+                                <div 
+                                  key={index} 
+                                  className={`flex items-center gap-2 ${
+                                    teamManagementMode && selectedGame && selectedGame.status !== 'active'
+                                      ? 'cursor-move p-2 rounded hover:bg-gray-600/50'
+                                      : ''
+                                  }`}
+                                  draggable={!!(teamManagementMode && selectedGame && selectedGame.status !== 'active')}
+                                  onDragStart={teamManagementMode ? (e) => handleDragStart(e, member, team.teamId) : undefined}
+                                >
                                   <Target className="w-4 h-4 text-gray-400" />
                                   <span className="text-gray-300">{member.displayName}</span>
                                   <span className="text-xs text-gray-400 bg-gray-400/20 px-2 py-1 rounded">Member</span>
+                                  {teamManagementMode && selectedGame && selectedGame.status !== 'active' && (
+                                    <span className="text-xs text-blue-400 ml-auto">Drag to move</span>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1169,6 +1360,78 @@ export default function AdminDashboard({
             </div>
           )}
         </div>
+
+        {/* Team Distribution Dialog */}
+        {teamDistributionDialog.isOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6">
+                <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                  <Users className="w-6 h-6 text-blue-400" />
+                  Team Distribution Preview
+                </h3>
+                <p className="text-gray-300">
+                  Review and edit team assignments before starting the game. You can drag and drop members between teams.
+                </p>
+              </div>
+              
+              <div className="p-6">
+                <TeamDistributionEditor
+                  teams={teamDistributionDialog.distributedTeams}
+                  onChange={(updatedTeams) => {
+                    setTeamDistributionDialog(prev => ({
+                      ...prev,
+                      distributedTeams: updatedTeams
+                    }))
+                  }}
+                />
+                
+                <div className="flex gap-3 mt-6 pt-6 border-t border-gray-700">
+                  <button
+                    onClick={async () => {
+                      try {
+                        setLoading(true)
+                        await gamesApi.startGameWithTeams(
+                          teamDistributionDialog.gameData.gameId, 
+                          teamDistributionDialog.distributedTeams
+                        )
+                        toast.success('Game started with custom teams!')
+                        setTeamDistributionDialog({
+                          isOpen: false,
+                          distributedTeams: [],
+                          gameData: null
+                        })
+                        onRefresh()
+                      } catch (error: any) {
+                        console.error('Start game with teams failed:', error)
+                        const errorMessage = error.response?.data?.error || 'Failed to start game'
+                        toast.error(errorMessage)
+                      } finally {
+                        setLoading(false)
+                      }
+                    }}
+                    disabled={loading}
+                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white py-3 px-6 rounded transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Play className="w-5 h-5" />
+                    {loading ? 'Starting Game...' : 'Start Game with These Teams'}
+                  </button>
+                  <button
+                    onClick={() => setTeamDistributionDialog({
+                      isOpen: false,
+                      distributedTeams: [],
+                      gameData: null
+                    })}
+                    disabled={loading}
+                    className="flex-1 bg-gray-600 hover:bg-gray-700 disabled:opacity-50 text-white py-3 px-6 rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Confirmation Dialog */}
         {confirmDialog.isOpen && (

@@ -4,7 +4,21 @@ A comprehensive Discord bot system for playing Snakes & Ladders games with teams
 
 ## 📋 Table of Contents
 
-- [Features](#features)
+- [Featur### Admi### Admin Commands
+- `/snlcreate <name>` - Create a new game
+- `/snlstartregistration` - Start game registration
+- `/snlstart` - Start the game
+- `/snlsetannouncement <channel>` - Set announcement channel for roll updates
+- `/verify` - Verify team task completion
+- `/snlaccept <user>` - Accept a player application
+- `/snldecline <user>` - Decline a player applicationnds
+- `/snlcreate <name>` - Create a new game
+- `/snlstartregistration` - Start game registration
+- `/snlstart` - Start the game
+- `/snlsetannouncement <channel>` - Set announcement channel for roll updates
+- `/verify` - Verify team task completion
+- `/snlaccept <user>` - Accept a player application
+- `/snldecline <user>` - Decline a player applicationatures)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -25,6 +39,8 @@ A comprehensive Discord bot system for playing Snakes & Ladders games with teams
 - **Real-time game board generation** with team positions
 - **Team verification system** for task completion
 - **Automatic team sorting** when games start
+- **Announcement system** with Discord webhook integration
+- **Pre-game team member exchange** for better balance
 
 ### 🌐 Web Dashboard
 - **Admin Dashboard** for complete game management
@@ -244,7 +260,8 @@ Set `DEV_MODE=true` in all environment files:
 
 ### Admin Dashboard
 - **Game Management**: Create, start, reset, delete games
-- **Team Management**: Verify teams, manage permissions
+- **Team Management**: Verify teams, manage permissions, exchange team members
+- **Announcement Setup**: Configure Discord channels and webhooks for roll announcements
 - **Application Review**: Accept/reject player applications
 - **Live Board Viewer**: Real-time game board with auto-refresh
 - **Statistics Overview**: Game and player metrics
@@ -262,6 +279,13 @@ Set `DEV_MODE=true` in all environment files:
 - **Task assignment** for each tile
 - **Sample task auto-fill** functionality
 - **Real-time preview** of board design
+
+### Announcement System
+- **Discord Integration**: Roll announcements sent to Discord channels
+- **Bot Commands**: Direct channel posting when rolling via bot
+- **Webhook Support**: Dashboard rolls use Discord webhooks
+- **Rich Embeds**: Consistent formatting for all announcements
+- **Game Events**: Snake/ladder events and victory announcements
 
 ## 🔄 Live Features
 

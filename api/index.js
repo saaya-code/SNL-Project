@@ -10,6 +10,79 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://snl:snl2025@localhost:27017/snl?authSource=admin';
 
+// Discord webhook functionality for announcements
+async function sendRollAnnouncement(game, team, diceRoll, oldPosition, newPosition, snakeOrLadder) {
+  const webhookUrl = game.announcementWebhookUrl;
+  
+  if (!webhookUrl) {
+    console.log('No Discord webhook URL configured for this game, skipping announcement');
+    return;
+  }
+
+  const embed = {
+    title: "🎲 Team Roll Update",
+    color: newPosition === 100 ? 0xffd700 : (snakeOrLadder && snakeOrLadder.includes('Snake')) ? 0xff4444 : (snakeOrLadder && snakeOrLadder.includes('Ladder')) ? 0x44ff44 : 0x0099ff,
+    description: `**${team.teamName}** rolled **${diceRoll}** and moved from tile **${oldPosition}** to tile **${newPosition}**`,
+    fields: [
+      {
+        name: "🎲 Dice Roll",
+        value: diceRoll.toString(),
+        inline: true
+      },
+      {
+        name: "📍 Position",
+        value: `${oldPosition} → ${newPosition}`,
+        inline: true
+      },
+      {
+        name: "🎮 Game",
+        value: game.name,
+        inline: true
+      }
+    ],
+    timestamp: new Date().toISOString()
+  };
+
+  if (snakeOrLadder) {
+    embed.fields.push({
+      name: snakeOrLadder.includes('Snake') ? "🐍 Snake Alert!" : "🪜 Ladder Boost!",
+      value: snakeOrLadder,
+      inline: false
+    });
+  }
+
+  if (newPosition >= 100) {
+    embed.title = "🏆 WINNER!";
+    embed.color = 0xffd700; // Gold color
+    embed.description = `**${team.teamName}** has reached tile 100 and won the game! 🎉`;
+    embed.fields.push({
+      name: "🏆 VICTORY!",
+      value: `**${team.teamName}** has won the game!`,
+      inline: false
+    });
+  }
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embeds: [embed]
+      })
+    });
+
+    if (!response.ok) {
+      console.error('Failed to send Discord webhook:', response.statusText);
+    } else {
+      console.log(`Sent roll announcement for ${team.teamName} via Discord webhook`);
+    }
+  } catch (error) {
+    console.error('Error sending Discord webhook:', error);
+  }
+}
+
 // Middleware
 app.use(express.json());
 
@@ -31,7 +104,92 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('API: Connected to MongoDB'))
   .catch(err => console.error('API: MongoDB connection error:', err));
 
-// Utility function to sort players into teams
+// Create team distribution without saving to database (for preview)
+function createTeamDistribution(acceptedApplications, gameId, maxTeamSize, devMode = false) {
+  const teams = [];
+  const shuffledApplications = [...acceptedApplications].sort(() => Math.random() - 0.5);
+  
+  // In DEV_MODE with only 1 player, create a single team
+  if (devMode && shuffledApplications.length === 1) {
+    const player = shuffledApplications[0];
+    const teamId = uuidv4();
+    const teamName = `Team ${player.displayName}`;
+    
+    const team = {
+      teamId,
+      gameId,
+      teamName,
+      members: [{
+        userId: player.userId,
+        username: player.username,
+        displayName: player.displayName
+      }],
+      leader: {
+        userId: player.userId,
+        username: player.username,
+        displayName: player.displayName
+      },
+      coLeader: {
+        userId: player.userId,
+        username: player.username,
+        displayName: player.displayName
+      },
+      channelId: 'dashboard-team',
+      currentPosition: 1,
+      canRoll: true
+    };
+    
+    teams.push(team);
+    return teams;
+  }
+  
+  // Normal team creation logic
+  const numTeams = Math.ceil(shuffledApplications.length / maxTeamSize);
+  
+  for (let i = 0; i < numTeams; i++) {
+    const startIndex = i * maxTeamSize;
+    const endIndex = Math.min(startIndex + maxTeamSize, shuffledApplications.length);
+    const teamMembers = shuffledApplications.slice(startIndex, endIndex);
+    
+    if (teamMembers.length === 0) continue;
+    
+    const teamId = uuidv4();
+    const teamName = `Team ${i + 1}`;
+    
+    // Assign leader and co-leader
+    const leader = teamMembers[0];
+    const coLeader = teamMembers.length > 1 ? teamMembers[1] : teamMembers[0];
+    
+    const team = {
+      teamId,
+      gameId,
+      teamName,
+      members: teamMembers.map(member => ({
+        userId: member.userId,
+        username: member.username,
+        displayName: member.displayName
+      })),
+      leader: {
+        userId: leader.userId,
+        username: leader.username,
+        displayName: leader.displayName
+      },
+      coLeader: {
+        userId: coLeader.userId,
+        username: coLeader.username,
+        displayName: coLeader.displayName
+      },
+      channelId: 'dashboard-team',
+      currentPosition: 1,
+      canRoll: true
+    };
+    
+    teams.push(team);
+  }
+  
+  return teams;
+}
+
 async function sortPlayersIntoTeams(acceptedApplications, gameId, maxTeamSize, devMode = false) {
   const teams = [];
   const shuffledApplications = [...acceptedApplications].sort(() => Math.random() - 0.5);
@@ -360,6 +518,165 @@ app.post('/api/games/:gameId/start', async (req, res) => {
   }
 });
 
+// Distribute teams without starting the game (for admin preview)
+app.post('/api/games/:gameId/distribute-teams', async (req, res) => {
+  try {
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Get all accepted applications for this game
+    const acceptedApplications = await Application.find({ 
+      gameId: req.params.gameId, 
+      status: 'accepted' 
+    });
+
+    const DEV_MODE = process.env.DEV_MODE === 'true';
+    
+    // Validate minimum participants
+    if (!DEV_MODE && acceptedApplications.length < 2) {
+      return res.status(400).json({ 
+        error: 'At least 2 accepted participants are required to start the game',
+        acceptedCount: acceptedApplications.length,
+        devMode: DEV_MODE
+      });
+    }
+
+    if (acceptedApplications.length === 0) {
+      return res.status(400).json({ 
+        error: 'No accepted applications found for this game' 
+      });
+    }
+
+    // Create team distribution preview (without saving to database)
+    const teamDistribution = createTeamDistribution(
+      acceptedApplications, 
+      game.gameId, 
+      game.maxTeamSize,
+      DEV_MODE
+    );
+
+    res.json({
+      teams: teamDistribution,
+      acceptedApplications: acceptedApplications.length,
+      devMode: DEV_MODE
+    });
+  } catch (error) {
+    console.error('Error distributing teams:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start game with predefined teams
+app.post('/api/games/:gameId/start-with-teams', async (req, res) => {
+  try {
+    const { teams } = req.body;
+    
+    if (!teams || !Array.isArray(teams)) {
+      return res.status(400).json({ error: 'Teams array is required' });
+    }
+
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Clear existing teams for this game
+    await Team.deleteMany({ gameId: req.params.gameId });
+
+    // Create teams from the provided data
+    const savedTeams = [];
+    for (const teamData of teams) {
+      const team = new Team({
+        teamId: teamData.teamId,
+        gameId: req.params.gameId,
+        teamName: teamData.teamName,
+        members: teamData.members,
+        leader: teamData.leader,
+        coLeader: teamData.coLeader,
+        channelId: teamData.channelId || 'dashboard-team',
+        currentPosition: 1,
+        canRoll: true
+      });
+      
+      await team.save();
+      savedTeams.push(team);
+    }
+
+    // Update game status
+    game.status = 'active';
+    await game.save();
+    
+    res.json({
+      ...game.toObject(),
+      teamsCreated: savedTeams,
+      acceptedApplications: savedTeams.reduce((total, team) => total + team.members.length, 0),
+      devMode: process.env.DEV_MODE === 'true'
+    });
+  } catch (error) {
+    console.error('Error starting game with teams:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/games/:gameId/start', async (req, res) => {
+  try {
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Get all accepted applications for this game
+    const acceptedApplications = await Application.find({ 
+      gameId: req.params.gameId, 
+      status: 'accepted' 
+    });
+
+    const DEV_MODE = process.env.DEV_MODE === 'true';
+    
+    // Validate minimum participants
+    if (!DEV_MODE && acceptedApplications.length < 2) {
+      return res.status(400).json({ 
+        error: 'At least 2 accepted participants are required to start the game',
+        acceptedCount: acceptedApplications.length,
+        devMode: DEV_MODE
+      });
+    }
+
+    if (acceptedApplications.length === 0) {
+      return res.status(400).json({ 
+        error: 'No accepted applications found for this game' 
+      });
+    }
+
+    // Clear existing teams for this game
+    await Team.deleteMany({ gameId: req.params.gameId });
+
+    // Sort applications into teams
+    const teamsCreated = await sortPlayersIntoTeams(
+      acceptedApplications, 
+      game.gameId, 
+      game.maxTeamSize,
+      DEV_MODE
+    );
+
+    // Update game status
+    game.status = 'active';
+    await game.save();
+    
+    res.json({
+      ...game.toObject(),
+      teamsCreated,
+      acceptedApplications: acceptedApplications.length,
+      devMode: DEV_MODE
+    });
+  } catch (error) {
+    console.error('Error starting game:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/games/:gameId/start-registration', async (req, res) => {
   try {
     const { maxTeamSize } = req.body;
@@ -576,6 +893,15 @@ app.post('/api/teams/:teamId/roll', async (req, res) => {
     team.currentPosition = newPosition;
     team.canRoll = false; // Prevent rolling again until next round
     await team.save();
+
+    // Send announcement if webhook is configured
+    if (game && game.announcementWebhookUrl) {
+      try {
+        await sendRollAnnouncement(game, team, diceRoll, oldPosition, newPosition, snakeOrLadder);
+      } catch (error) {
+        console.error('Failed to send roll announcement:', error);
+      }
+    }
     
     res.json({
       diceRoll,
@@ -602,6 +928,111 @@ app.post('/api/teams/:teamId/verify', async (req, res) => {
     await team.save();
     
     res.json(team);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to update team members (exchange between teams)
+app.put('/api/teams/:teamId/members', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { members, leader, coLeader } = req.body;
+
+    const team = await Team.findOne({ teamId });
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Check if game has started
+    const game = await Game.findOne({ gameId: team.gameId });
+    if (game && game.status === 'active') {
+      return res.status(400).json({ error: 'Cannot modify teams after game has started' });
+    }
+
+    // Update team members
+    team.members = members;
+    if (leader) team.leader = leader;
+    if (coLeader) team.coLeader = coLeader;
+
+    await team.save();
+    res.json(team);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to exchange team members between two teams
+app.put('/api/teams/exchange', async (req, res) => {
+  try {
+    const { sourceTeamId, targetTeamId, memberToMove } = req.body;
+
+    // Get both teams
+    const [sourceTeam, targetTeam] = await Promise.all([
+      Team.findOne({ teamId: sourceTeamId }),
+      Team.findOne({ teamId: targetTeamId })
+    ]);
+
+    if (!sourceTeam || !targetTeam) {
+      return res.status(404).json({ error: 'One or both teams not found' });
+    }
+
+    // Check if game has started
+    const game = await Game.findOne({ gameId: sourceTeam.gameId });
+    if (game && game.status === 'active') {
+      return res.status(400).json({ error: 'Cannot modify teams after game has started' });
+    }
+
+    // Remove member from source team
+    sourceTeam.members = sourceTeam.members.filter(member => member.userId !== memberToMove.userId);
+    
+    // Add member to target team
+    targetTeam.members.push(memberToMove);
+
+    // Update leader/co-leader if necessary
+    if (sourceTeam.leader.userId === memberToMove.userId) {
+      sourceTeam.leader = sourceTeam.members.length > 0 ? sourceTeam.members[0] : sourceTeam.coLeader;
+    }
+    if (sourceTeam.coLeader.userId === memberToMove.userId) {
+      sourceTeam.coLeader = sourceTeam.members.length > 1 ? sourceTeam.members[1] : sourceTeam.leader;
+    }
+
+    // Auto-assign leader/co-leader in target team if needed
+    if (!targetTeam.leader || targetTeam.members.length === 1) {
+      targetTeam.leader = targetTeam.members[0];
+      targetTeam.coLeader = targetTeam.members.length > 1 ? targetTeam.members[1] : targetTeam.members[0];
+    }
+
+    // Save both teams
+    await Promise.all([sourceTeam.save(), targetTeam.save()]);
+    
+    res.json({ sourceTeam, targetTeam });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to update announcement channel for a game
+app.put('/api/games/:gameId/announcement-channel', async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { announcementChannelId, announcementWebhookUrl } = req.body;
+
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (announcementChannelId !== undefined) {
+      game.announcementChannelId = announcementChannelId;
+    }
+    if (announcementWebhookUrl !== undefined) {
+      game.announcementWebhookUrl = announcementWebhookUrl;
+    }
+    
+    await game.save();
+    
+    res.json(game);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

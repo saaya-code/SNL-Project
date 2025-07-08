@@ -170,8 +170,8 @@ export async function handleSelectGameToStart(interaction) {
       });
     }
 
-    // Store announcements channel ID in game for future reference
-    game.announcementsChannelId = announcementsChannel.id;
+    // Store announcement channel ID in game for future reference
+    game.announcementChannelId = announcementsChannel.id;
     await game.save();
 
     for (let i = 0; i < teams.length; i++) {
@@ -260,9 +260,9 @@ export async function handleSelectGameToStart(interaction) {
     await game.save();
 
     // Send initial announcement to SNL announcements channel
-    if (game.announcementsChannelId) {
+    if (game.announcementChannelId) {
       try {
-        const announcementsChannel = await guild.channels.fetch(game.announcementsChannelId);
+        const announcementsChannel = await guild.channels.fetch(game.announcementChannelId);
         if (announcementsChannel) {
           const gameStartEmbed = new EmbedBuilder()
             .setTitle(`🎮 ${game.name} - Game Started!`)
@@ -462,7 +462,7 @@ export async function startGameWithParticipants(interaction, gameId) {
     }
 
     // Store announcements channel ID in game for future reference
-    game.announcementsChannelId = announcementsChannel.id;
+    game.announcementChannelId = announcementsChannel.id;
     await game.save();
 
     // Create teams and channels
@@ -585,9 +585,9 @@ export async function startGameWithParticipants(interaction, gameId) {
     await game.save();
 
     // Send initial announcement to SNL announcements channel
-    if (game.announcementsChannelId) {
+    if (game.announcementChannelId) {
       try {
-        const announcementsChannel = await guild.channels.fetch(game.announcementsChannelId);
+        const announcementsChannel = await guild.channels.fetch(game.announcementChannelId);
         if (announcementsChannel) {
           const gameStartEmbed = new EmbedBuilder()
             .setTitle(`🎮 ${game.name} - Game Started!`)
