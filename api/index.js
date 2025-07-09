@@ -84,7 +84,8 @@ async function sendRollAnnouncement(game, team, diceRoll, oldPosition, newPositi
 }
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '300mb' }));
+app.use(express.urlencoded({ limit: '300mb', extended: true }));
 
 // CORS middleware for dashboard access
 app.use((req, res, next) => {
