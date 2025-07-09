@@ -33,6 +33,7 @@ import {
 import { gamesApi, teamsApi, applicationsApi } from '@/lib/api'
 import { toast } from 'react-hot-toast'
 import TeamDistributionEditor from '@/components/ui/team-distribution-editor'
+import TileEditor from '@/components/ui/tile-editor'
 
 interface AdminDashboardProps {
   games: Game[]
@@ -49,7 +50,7 @@ export default function AdminDashboard({
   user, 
   onRefresh 
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications' | 'board'>('games')
+  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications' | 'board' | 'editor'>('games')
   const [selectedGame, setSelectedGame] = useState<Game | null>(null)
   const [gameTeams, setGameTeams] = useState<Team[]>([])
   const [gameApplications, setGameApplications] = useState<Application[]>([])
@@ -82,6 +83,15 @@ export default function AdminDashboard({
     message: '',
     action: () => {},
     type: 'info'
+  })
+  const [tileEditorDialog, setTileEditorDialog] = useState<{
+    isOpen: boolean
+    tileNumber: number | null
+    tileData: any
+  }>({
+    isOpen: false,
+    tileNumber: null,
+    tileData: null
   })
 
   // Debug: Log user object on mount
@@ -479,6 +489,53 @@ export default function AdminDashboard({
     }
   }
 
+  const handleTileClick = async (tileNumber: number) => {
+    if (!selectedGame) return
+    
+    try {
+      setLoading(true)
+      const tileData = await gamesApi.getTile(selectedGame.gameId, tileNumber)
+      setTileEditorDialog({
+        isOpen: true,
+        tileNumber,
+        tileData
+      })
+    } catch (error) {
+      console.error('Failed to load tile data:', error)
+      toast.error('Failed to load tile data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleTileUpdate = async (tileNumber: number, updates: any) => {
+    if (!selectedGame) return
+    
+    try {
+      setLoading(true)
+      
+      // Update tile task if provided
+      if (updates.task) {
+        await gamesApi.updateTile(selectedGame.gameId, tileNumber, updates.task)
+      }
+      
+      // Update snake/ladder if provided
+      if (updates.snakeLadder) {
+        await gamesApi.updateTileSnakeLadder(selectedGame.gameId, tileNumber, updates.snakeLadder)
+      }
+      
+      toast.success('Tile updated successfully!')
+      setBoardImageKey(Date.now()) // Refresh board image
+      onRefresh() // Refresh game data
+      setTileEditorDialog({ isOpen: false, tileNumber: null, tileData: null })
+    } catch (error) {
+      console.error('Failed to update tile:', error)
+      toast.error('Failed to update tile')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleDragStart = (e: React.DragEvent, member: any, teamId: string) => {
     setDraggedMember({ ...member, sourceTeamId: teamId })
   }
@@ -499,7 +556,8 @@ export default function AdminDashboard({
     'games': { icon: Gamepad2, label: 'Game Management', count: games.length },
     'teams': { icon: Users, label: 'Team Management', count: teams.length },
     'applications': { icon: Send, label: 'Applications', count: applications.filter(a => a.status === 'pending').length },
-    'board': { icon: Eye, label: 'Board Viewer', count: selectedGame ? 1 : 0 }
+    'board': { icon: Eye, label: 'Board Viewer', count: selectedGame ? 1 : 0 },
+    'editor': { icon: Settings, label: 'Board Editor', count: selectedGame ? 1 : 0 }
   }
 
   return (
@@ -711,6 +769,17 @@ export default function AdminDashboard({
                             >
                               <Eye className="w-4 h-4" />
                               View Board
+                            </button>
+                            
+                            <button
+                              onClick={() => {
+                                setSelectedGame(game)
+                                setActiveTab('editor')
+                              }}
+                              className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                            >
+                              <Settings className="w-4 h-4" />
+                              Edit Board
                             </button>
                             
                             {game.status === 'pending' && (
@@ -1359,6 +1428,116 @@ export default function AdminDashboard({
               )}
             </div>
           )}
+
+          {/* Board Editor Tab */}
+          {activeTab === 'editor' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">Board Editor</h2>
+                {selectedGame && (
+                  <div className="text-sm text-gray-300">
+                    Editing: {selectedGame.name}
+                  </div>
+                )}
+              </div>
+
+              {!selectedGame ? (
+                <div className="text-center py-12">
+                  <Settings className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No game selected</p>
+                  <p className="text-sm text-gray-400">Go to "Game Management" and select a game to edit its board</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Instructions */}
+                  <div className="bg-blue-600/20 border border-blue-600/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <Settings className="w-5 h-5" />
+                      Board Editor Instructions
+                    </h3>
+                    <div className="text-gray-300 space-y-2">
+                      <p>• Click on any tile below to edit its content</p>
+                      <p>• You can change the tile description, image, and add/remove snakes or ladders</p>
+                      <p>• Changes are saved immediately and will be reflected in the game</p>
+                      <p>• The board image will automatically update after changes</p>
+                    </div>
+                  </div>
+
+                  {/* Board Tiles Grid */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-white">Board Tiles</h3>
+                      <div className="text-sm text-gray-300">
+                        10x10 board (100 tiles)
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-10 gap-1 max-w-4xl mx-auto">
+                      {Array.from({ length: 100 }, (_, i) => {
+                        // Calculate tile number starting from bottom-left (like Snakes and Ladders)
+                        const row = Math.floor(i / 10)
+                        const col = i % 10
+                        const boardRow = 9 - row // Flip the row (bottom to top)
+                        
+                        // Snake-like pattern: odd rows go right-to-left, even rows go left-to-right
+                        let tileNumber: number
+                        if (boardRow % 2 === 0) {
+                          // Even rows (0, 2, 4, 6, 8): left to right
+                          tileNumber = boardRow * 10 + col + 1
+                        } else {
+                          // Odd rows (1, 3, 5, 7, 9): right to left
+                          tileNumber = boardRow * 10 + (9 - col) + 1
+                        }
+                        
+                        const isSnake = selectedGame.snakes && selectedGame.snakes[tileNumber.toString()]
+                        const isLadder = selectedGame.ladders && selectedGame.ladders[tileNumber.toString()]
+                        const hasTeam = gameTeams.some(t => t.currentPosition === tileNumber)
+                        
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => handleTileClick(tileNumber)}
+                            disabled={loading}
+                            className={`
+                              aspect-square rounded-lg text-xs font-bold transition-all
+                              ${hasTeam ? 'bg-yellow-600 text-white' : 'bg-gray-600 text-gray-300'}
+                              ${isSnake ? 'ring-2 ring-red-500' : ''}
+                              ${isLadder ? 'ring-2 ring-green-500' : ''}
+                              hover:bg-blue-600 hover:text-white
+                              disabled:opacity-50 disabled:cursor-not-allowed
+                              flex items-center justify-center
+                            `}
+                          >
+                            {tileNumber}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    
+                    {/* Legend */}
+                    <div className="flex items-center justify-center gap-6 mt-6 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-gray-600 rounded"></div>
+                        <span className="text-gray-300">Empty tile</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-yellow-600 rounded"></div>
+                        <span className="text-gray-300">Team position</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-gray-600 rounded ring-2 ring-red-500"></div>
+                        <span className="text-gray-300">Snake head</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-gray-600 rounded ring-2 ring-green-500"></div>
+                        <span className="text-gray-300">Ladder bottom</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Team Distribution Dialog */}
@@ -1428,6 +1607,33 @@ export default function AdminDashboard({
                     Cancel
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tile Editor Dialog */}
+        {tileEditorDialog.isOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6">
+                <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                  <Settings className="w-6 h-6 text-blue-400" />
+                  Edit Tile {tileEditorDialog.tileNumber}
+                </h3>
+                <p className="text-gray-300">
+                  Edit the content and properties of this tile
+                </p>
+              </div>
+              
+              <div className="p-6">
+                <TileEditor
+                  tileNumber={tileEditorDialog.tileNumber!}
+                  initialData={tileEditorDialog.tileData}
+                  onSave={handleTileUpdate}
+                  onCancel={() => setTileEditorDialog({ isOpen: false, tileNumber: null, tileData: null })}
+                  loading={loading}
+                />
               </div>
             </div>
           </div>

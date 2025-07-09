@@ -76,6 +76,21 @@ export const gamesApi = {
       announcementWebhookUrl
     })
     return response.data
+  },
+
+  async getTile(gameId: string, tileNumber: number): Promise<any> {
+    const response = await api.get(`/api/games/${gameId}/tiles/${tileNumber}`)
+    return response.data
+  },
+
+  async updateTile(gameId: string, tileNumber: number, tileData: any): Promise<any> {
+    const response = await api.put(`/api/games/${gameId}/tiles/${tileNumber}`, tileData)
+    return response.data
+  },
+
+  async updateTileSnakeLadder(gameId: string, tileNumber: number, snakeLadderData: any): Promise<any> {
+    const response = await api.put(`/api/games/${gameId}/tiles/${tileNumber}/snake-ladder`, snakeLadderData)
+    return response.data
   }
 }
 
@@ -200,18 +215,5 @@ export const dashboardApi = {
   async getStats(): Promise<DashboardStats> {
     const response = await api.get('/api/dashboard/stats')
     return response.data
-  },
-
-  async getUserPermissions(userId: string, guildId: string): Promise<{
-    isAdmin: boolean
-    isModerator: boolean
-    roles: string[]
-  }> {
-    const response = await api.get(`/api/users/${userId}/permissions`, {
-      params: { guildId }
-    })
-    return response.data
   }
 }
-
-export default api
