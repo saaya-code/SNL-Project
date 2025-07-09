@@ -62,6 +62,7 @@ export default function AdminDashboard({
   const [draggedMember, setDraggedMember] = useState<any>(null)
   const [announcementChannelId, setAnnouncementChannelId] = useState('')
   const [announcementWebhookUrl, setAnnouncementWebhookUrl] = useState('')
+  const [applicationFilter, setApplicationFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all')
   const [teamDistributionDialog, setTeamDistributionDialog] = useState<{
     isOpen: boolean
     distributedTeams: Team[]
@@ -357,7 +358,7 @@ export default function AdminDashboard({
     )
   }
 
-  const handleApplicationAction = async (applicationId: string, action: 'accept' | 'reject', notes?: string) => {
+  const handleApplicationAction = async (applicationId: string, action: 'accept' | 'reject', notes?: string, newStatus?: 'pending' | 'accepted' | 'rejected') => {
     // Look for application in both arrays - prioritize the full list
     const application = applications.find(a => a.applicationId === applicationId) ||
                        gameApplications.find(a => a.applicationId === applicationId)
@@ -377,6 +378,43 @@ export default function AdminDashboard({
     if (!userId) {
       console.error('User ID is missing. User object:', user)
       toast.error('User authentication issue. Please refresh the page.')
+      return
+    }
+
+    // If newStatus is provided, we're changing status directly
+    if (newStatus) {
+      try {
+        setLoading(true)
+        console.log(`Changing application status to:`, newStatus, 'for application:', applicationId)
+        
+        if (newStatus === 'accepted') {
+          await applicationsApi.accept(applicationId, userId, notes)
+        } else if (newStatus === 'rejected') {
+          await applicationsApi.reject(applicationId, userId, notes)
+        } else {
+          // For pending status, we need to call the updateStatus API
+          await applicationsApi.updateStatus(applicationId, 'pending')
+        }
+        
+        toast.success(`Application status changed to ${newStatus}!`)
+        
+        // Refresh both game-specific and global data
+        if (selectedGame) {
+          await loadGameData(selectedGame.gameId)
+        }
+        onRefresh()
+      } catch (error: any) {
+        console.error(`Status change failed:`, error)
+        if (error.response) {
+          console.error('Error response:', error.response.data)
+          console.error('Error status:', error.response.status)
+          toast.error(`Failed to change status: ${error.response.data?.error || error.message}`)
+        } else {
+          toast.error(`Failed to change status: ${error.message}`)
+        }
+      } finally {
+        setLoading(false)
+      }
       return
     }
 
@@ -417,6 +455,23 @@ export default function AdminDashboard({
         }
       },
       action === 'reject' ? 'warning' : 'info'
+    )
+  }
+
+  const handleApplicationStatusChange = (applicationId: string, newStatus: 'pending' | 'accepted' | 'rejected') => {
+    const application = applications.find(a => a.applicationId === applicationId) ||
+                       gameApplications.find(a => a.applicationId === applicationId)
+    
+    if (!application) {
+      toast.error('Application not found')
+      return
+    }
+
+    showConfirmDialog(
+      'Change Application Status',
+      `Are you sure you want to change ${application.displayName}'s application status to "${newStatus}"?`,
+      () => handleApplicationAction(applicationId, 'accept', undefined, newStatus),
+      'info'
     )
   }
 
@@ -1099,13 +1154,43 @@ export default function AdminDashboard({
                 <div className="space-y-4">
                   {/* Filter by status */}
                   <div className="flex gap-2 mb-4">
-                    <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm">All</button>
-                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Pending</button>
-                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Accepted</button>
-                    <button className="bg-gray-700 text-gray-300 px-3 py-1 rounded text-sm">Rejected</button>
+                    <button 
+                      onClick={() => setApplicationFilter('all')}
+                      className={`px-3 py-1 rounded text-sm transition-colors ${
+                        applicationFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      All ({applications.length})
+                    </button>
+                    <button 
+                      onClick={() => setApplicationFilter('pending')}
+                      className={`px-3 py-1 rounded text-sm transition-colors ${
+                        applicationFilter === 'pending' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Pending ({applications.filter(a => a.status === 'pending').length})
+                    </button>
+                    <button 
+                      onClick={() => setApplicationFilter('accepted')}
+                      className={`px-3 py-1 rounded text-sm transition-colors ${
+                        applicationFilter === 'accepted' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Accepted ({applications.filter(a => a.status === 'accepted').length})
+                    </button>
+                    <button 
+                      onClick={() => setApplicationFilter('rejected')}
+                      className={`px-3 py-1 rounded text-sm transition-colors ${
+                        applicationFilter === 'rejected' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      Rejected ({applications.filter(a => a.status === 'rejected').length})
+                    </button>
                   </div>
 
-                  {applications.map((application) => {
+                  {applications
+                    .filter(app => applicationFilter === 'all' || app.status === applicationFilter)
+                    .map((application) => {
                     const game = games.find(g => g.gameId === application.gameId)
                     
                     return (
@@ -1148,26 +1233,49 @@ export default function AdminDashboard({
                             )}
                           </div>
                           
-                          {application.status === 'pending' && (
-                            <div className="flex gap-2 ml-4">
-                              <button
-                                onClick={() => handleApplicationAction(application.applicationId, 'accept')}
+                          <div className="flex flex-col gap-2 ml-4">
+                            {/* Status Change Dropdown */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-gray-300">Change to:</span>
+                              <select
+                                value={application.status}
+                                onChange={(e) => {
+                                  const newStatus = e.target.value as 'pending' | 'accepted' | 'rejected'
+                                  if (newStatus !== application.status) {
+                                    handleApplicationStatusChange(application.applicationId, newStatus)
+                                  }
+                                }}
                                 disabled={loading}
-                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-sm text-white disabled:opacity-50"
                               >
-                                <CheckCircle className="w-4 h-4" />
-                                Accept
-                              </button>
-                              <button
-                                onClick={() => handleApplicationAction(application.applicationId, 'reject')}
-                                disabled={loading}
-                                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
-                              >
-                                <XCircle className="w-4 h-4" />
-                                Reject
-                              </button>
+                                <option value="pending">Pending</option>
+                                <option value="accepted">Accepted</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
                             </div>
-                          )}
+                            
+                            {/* Quick Action Buttons for Pending Applications */}
+                            {application.status === 'pending' && (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleApplicationAction(application.applicationId, 'accept')}
+                                  disabled={loading}
+                                  className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => handleApplicationAction(application.applicationId, 'reject')}
+                                  disabled={loading}
+                                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )

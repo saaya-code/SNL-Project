@@ -184,6 +184,14 @@ export const applicationsApi = {
     return response.data
   },
 
+  async updateStatus(applicationId: string, status: 'pending' | 'accepted' | 'rejected'): Promise<Application> {
+    console.log('API: Updating application status:', { applicationId, status })
+    const response = await api.put(`/api/applications/${applicationId}/status`, {
+      status
+    })
+    return response.data
+  },
+
   async getByUser(userId: string): Promise<Application[]> {
     const response = await api.get(`/api/users/${userId}/applications`)
     return response.data
