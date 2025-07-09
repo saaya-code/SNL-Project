@@ -519,7 +519,7 @@ app.post('/api/games/:gameId/start', async (req, res) => {
   }
 });
 
-// Distribute teams without starting the game (for admin preview)
+// Distribute teams without starting the game (for
 app.post('/api/games/:gameId/distribute-teams', async (req, res) => {
   try {
     const game = await Game.findOne({ gameId: req.params.gameId });
@@ -1009,6 +1009,151 @@ app.put('/api/teams/exchange', async (req, res) => {
     
     res.json({ sourceTeam, targetTeam });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to update a specific tile in a game
+app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
+  try {
+    const { gameId, tileNumber } = req.params;
+    const { description, imageUrl, uploadedImageUrl, uploadedImageName } = req.body;
+
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Validate tile number
+    const tileNum = parseInt(tileNumber);
+    if (tileNum < 1 || tileNum > 100) {
+      return res.status(400).json({ error: 'Tile number must be between 1 and 100' });
+    }
+
+    // Update the specific tile
+    const tileKey = tileNumber.toString();
+    const currentTileTasks = game.tileTasks || new Map();
+    
+    if (description || imageUrl || uploadedImageUrl || uploadedImageName) {
+      // Update or create tile task
+      const tileTask = {
+        description: description || '',
+        imageUrl: imageUrl || '',
+        uploadedImageUrl: uploadedImageUrl || '',
+        uploadedImageName: uploadedImageName || ''
+      };
+      currentTileTasks.set(tileKey, tileTask);
+    } else {
+      // Remove tile task if all fields are empty
+      currentTileTasks.delete(tileKey);
+    }
+
+    game.tileTasks = currentTileTasks;
+    await game.save();
+    
+    res.json({
+      message: 'Tile updated successfully',
+      tile: {
+        number: tileNum,
+        task: currentTileTasks.get(tileKey) || null
+      }
+    });
+  } catch (error) {
+    console.error('Error updating tile:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET endpoint to get a specific tile from a game
+app.get('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
+  try {
+    const { gameId, tileNumber } = req.params;
+
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Validate tile number
+    const tileNum = parseInt(tileNumber);
+    if (tileNum < 1 || tileNum > 100) {
+      return res.status(400).json({ error: 'Tile number must be between 1 and 100' });
+    }
+
+    const tileKey = tileNumber.toString();
+    const tileTask = game.tileTasks?.get(tileKey) || null;
+    
+    res.json({
+      number: tileNum,
+      task: tileTask,
+      hasSnake: game.snakes?.has(tileKey) || false,
+      snakeEnd: game.snakes?.get(tileKey) || null,
+      hasLadder: game.ladders?.has(tileKey) || false,
+      ladderEnd: game.ladders?.get(tileKey) || null
+    });
+  } catch (error) {
+    console.error('Error getting tile:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to update snakes and ladders for a specific tile
+app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) => {
+  try {
+    const { gameId, tileNumber } = req.params;
+    const { snakeEnd, ladderEnd, removeSnake, removeLadder } = req.body;
+
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Validate tile number
+    const tileNum = parseInt(tileNumber);
+    if (tileNum < 1 || tileNum > 100) {
+      return res.status(400).json({ error: 'Tile number must be between 1 and 100' });
+    }
+
+    const tileKey = tileNumber.toString();
+    
+    // Handle snake updates
+    if (removeSnake) {
+      game.snakes.delete(tileKey);
+    } else if (snakeEnd !== undefined && snakeEnd !== null) {
+      const snakeEndNum = parseInt(snakeEnd);
+      if (snakeEndNum >= 1 && snakeEndNum < tileNum) {
+        game.snakes.set(tileKey, snakeEndNum);
+      } else {
+        return res.status(400).json({ error: 'Snake end must be less than snake start and >= 1' });
+      }
+    }
+    
+    // Handle ladder updates
+    if (removeLadder) {
+      game.ladders.delete(tileKey);
+    } else if (ladderEnd !== undefined && ladderEnd !== null) {
+      const ladderEndNum = parseInt(ladderEnd);
+      if (ladderEndNum > tileNum && ladderEndNum <= 100) {
+        game.ladders.set(tileKey, ladderEndNum);
+      } else {
+        return res.status(400).json({ error: 'Ladder end must be greater than ladder start and <= 100' });
+      }
+    }
+
+    await game.save();
+    
+    res.json({
+      message: 'Snake/Ladder updated successfully',
+      tile: {
+        number: tileNum,
+        hasSnake: game.snakes.has(tileKey),
+        snakeEnd: game.snakes.get(tileKey) || null,
+        hasLadder: game.ladders.has(tileKey),
+        ladderEnd: game.ladders.get(tileKey) || null
+      }
+    });
+  } catch (error) {
+    console.error('Error updating snake/ladder:', error);
     res.status(500).json({ error: error.message });
   }
 });
