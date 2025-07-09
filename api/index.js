@@ -846,6 +846,51 @@ app.post('/api/applications/:applicationId/reject', async (req, res) => {
   }
 });
 
+// Update application status (admin only)
+app.put('/api/applications/:applicationId/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    const { applicationId } = req.params;
+    
+    console.log(`Attempting to update application status: ${applicationId} to ${status}`);
+    console.log(`Request body:`, req.body);
+    
+    // Validate status
+    if (!['pending', 'accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be pending, accepted, or rejected' });
+    }
+    
+    const application = await Application.findOne({ applicationId });
+    if (!application) {
+      console.log(`Application not found with ID: ${applicationId}`);
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    
+    console.log(`Found application:`, application);
+    
+    // Update status
+    const oldStatus = application.status;
+    application.status = status;
+    
+    // Reset review fields if changing back to pending
+    if (status === 'pending') {
+      application.reviewedAt = null;
+      application.reviewedBy = null;
+      application.notes = null;
+    } else if (oldStatus === 'pending') {
+      // If changing from pending to accepted/rejected, set review timestamp
+      application.reviewedAt = new Date();
+    }
+    
+    await application.save();
+    console.log(`Application status updated from ${oldStatus} to ${status}`);
+    res.json(application);
+  } catch (error) {
+    console.error('Error updating application status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Team actions
 app.post('/api/teams/:teamId/roll', async (req, res) => {
   try {
