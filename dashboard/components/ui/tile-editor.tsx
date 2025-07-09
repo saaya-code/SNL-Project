@@ -27,29 +27,106 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
 
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Image compression function
+  const compressImage = (file: File, maxSizeKB: number = 500): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      const img = new Image()
+
+      img.onload = () => {
+        // Calculate new dimensions (max 800x600 to reduce size)
+        let { width, height } = img
+        const maxWidth = 800
+        const maxHeight = 600
+
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height)
+          width *= ratio
+          height *= ratio
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        // Draw and compress
+        ctx?.drawImage(img, 0, 0, width, height)
+        
+        // Try different quality levels
+        let quality = 0.95 // Start with higher quality
+        let result = canvas.toDataURL('image/jpeg', quality)
+        
+        // Reduce quality until size is acceptable
+        while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.3) { // Base64 is ~4/3 of binary size
+          quality -= 0.05 // Smaller quality steps for better results
+          result = canvas.toDataURL('image/jpeg', quality)
+        }
+
+        const finalSizeKB = Math.round((result.length * 3) / 4 / 1024)
+        console.log(`Compressed image to ${finalSizeKB}KB at quality ${quality}`)
+
+        if (finalSizeKB > maxSizeKB) {
+          reject(new Error(`Image too large: ${finalSizeKB}KB. Please use a smaller image.`))
+        } else {
+          resolve(result)
+        }
+      }
+
+      img.onerror = () => reject(new Error('Failed to load image'))
+      img.src = URL.createObjectURL(file)
+    })
+  }
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (file) {
+    if (!file) return
+
+    setImageError(null)
+
+    // Check file size (limit to 5MB before compression)
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError('Image file too large. Please select an image under 5MB.')
+      return
+    }
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      setImageError('Please select a valid image file.')
+      return
+    }
+
+    try {
       setImageFile(file)
       
-      // Create preview
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string)
-      }
-      reader.readAsDataURL(file)
+      // Compress the image
+      const compressedBase64 = await compressImage(file, 500) // 500KB limit
+      setImagePreview(compressedBase64)
+      
+      // Update form data with compressed image
+      setFormData(prev => ({
+        ...prev,
+        uploadedImageUrl: compressedBase64,
+        uploadedImageName: file.name
+      }))
+    } catch (error) {
+      console.error('Image compression failed:', error)
+      setImageError(error instanceof Error ? error.message : 'Failed to process image')
+      setImageFile(null)
+      setImagePreview(null)
     }
   }
 
   const removeImage = () => {
     setImageFile(null)
     setImagePreview(null)
+    setImageError(null)
     setFormData(prev => ({ 
       ...prev, 
-      imageUrl: '', 
-      uploadedImageUrl: '', 
-      uploadedImageName: '' 
+      imageUrl: '',
+      uploadedImageUrl: '',
+      uploadedImageName: ''
     }))
   }
 
@@ -192,8 +269,16 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
                 <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
                 <p className="text-sm text-gray-300">Click to upload image</p>
                 <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</p>
+                <p className="text-xs text-blue-400 mt-1">Images are automatically compressed to under 500KB</p>
               </div>
             </label>
+            
+            {/* Error Message */}
+            {imageError && (
+              <div className="bg-red-600/20 border border-red-600/50 rounded-lg p-3">
+                <p className="text-red-400 text-sm">{imageError}</p>
+              </div>
+            )}
             
             {/* Image Preview */}
             {(imagePreview || formData.uploadedImageUrl) && (
@@ -209,6 +294,11 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
                 >
                   <X className="w-4 h-4" />
                 </button>
+                {imageFile && (
+                  <div className="mt-2 text-center">
+                    <p className="text-xs text-green-400">✓ Image compressed and ready</p>
+                  </div>
+                )}
               </div>
             )}
             

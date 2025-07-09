@@ -1581,6 +1581,12 @@ export default function AdminDashboard({
                     </div>
                     
                     <div className="grid grid-cols-10 gap-1 max-w-4xl mx-auto">
+                      {(() => {
+                        if (selectedGame.tileTasks) {
+                          console.log('tileTasks structure:', selectedGame.tileTasks)
+                        }
+                        return null
+                      })()}
                       {Array.from({ length: 100 }, (_, i) => {
                         // Calculate tile number starting from bottom-left (like Snakes and Ladders)
                         const row = Math.floor(i / 10)
@@ -1601,14 +1607,46 @@ export default function AdminDashboard({
                         const isLadder = selectedGame.ladders && selectedGame.ladders[tileNumber.toString()]
                         const hasTeam = gameTeams.some(t => t.currentPosition === tileNumber)
                         
+                        // Check tile content
+                        const tileTask = selectedGame.tileTasks && selectedGame.tileTasks[tileNumber.toString()]
+                        const hasText = tileTask && (tileTask.name || tileTask.description)
+                        const hasImage = tileTask && (tileTask.imageUrl || tileTask.uploadedImageUrl)
+                        
+                        // Debug logging for specific tiles
+                        if (tileNumber <= 5) {
+                          console.log(`Tile ${tileNumber}:`, { tileTask, hasText, hasImage })
+                        }
+                        
+                        // Determine tile appearance
+                        let tileClass = 'bg-gray-600 text-gray-300' // Default empty tile
+                        let contentIndicator = null
+                        
+                        if (hasTeam) {
+                          tileClass = 'bg-yellow-600 text-white'
+                        } else if (hasImage) {
+                          tileClass = 'bg-blue-600 text-white'
+                          contentIndicator = (
+                            <div className="absolute -top-1 -right-1">
+                              <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                            </div>
+                          )
+                        } else if (hasText) {
+                          tileClass = 'bg-green-600 text-white'
+                          contentIndicator = (
+                            <div className="absolute -top-1 -right-1">
+                              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                            </div>
+                          )
+                        }
+                        
                         return (
                           <button
                             key={i}
                             onClick={() => handleTileClick(tileNumber)}
                             disabled={loading}
                             className={`
-                              aspect-square rounded-lg text-xs font-bold transition-all
-                              ${hasTeam ? 'bg-yellow-600 text-white' : 'bg-gray-600 text-gray-300'}
+                              aspect-square rounded-lg text-xs font-bold transition-all relative
+                              ${tileClass}
                               ${isSnake ? 'ring-2 ring-red-500' : ''}
                               ${isLadder ? 'ring-2 ring-green-500' : ''}
                               hover:bg-blue-600 hover:text-white
@@ -1617,13 +1655,14 @@ export default function AdminDashboard({
                             `}
                           >
                             {tileNumber}
+                            {contentIndicator}
                           </button>
                         )
                       })}
                     </div>
                     
                     {/* Legend */}
-                    <div className="flex items-center justify-center gap-6 mt-6 text-sm">
+                    <div className="flex items-center justify-center gap-4 mt-6 text-sm flex-wrap">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-gray-600 rounded"></div>
                         <span className="text-gray-300">Empty tile</span>
@@ -1631,6 +1670,18 @@ export default function AdminDashboard({
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-yellow-600 rounded"></div>
                         <span className="text-gray-300">Team position</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-4 h-4 bg-green-600 rounded">
+                          <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                        </div>
+                        <span className="text-gray-300">Has text</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-4 h-4 bg-blue-600 rounded">
+                          <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                        </div>
+                        <span className="text-gray-300">Has image</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-gray-600 rounded ring-2 ring-red-500"></div>

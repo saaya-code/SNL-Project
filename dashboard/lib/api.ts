@@ -8,6 +8,25 @@ const api = axios.create({
   timeout: 10000,
 })
 
+// Request interceptor to log large payloads
+api.interceptors.request.use((config) => {
+  if (config.data) {
+    const payloadSize = JSON.stringify(config.data).length
+    const sizeKB = Math.round(payloadSize / 1024)
+    
+    if (sizeKB > 100) { // Log payloads over 100KB
+      console.warn(`Large payload detected: ${sizeKB}KB for ${config.method?.toUpperCase()} ${config.url}`)
+    }
+    
+    if (sizeKB > 5000) { // Warn for very large payloads over 5MB
+      console.error(`Very large payload: ${sizeKB}KB - this may cause memory issues`)
+    }
+  }
+  return config
+}, (error) => {
+  return Promise.reject(error)
+})
+
 // Games API
 export const gamesApi = {
   async getAll(): Promise<Game[]> {

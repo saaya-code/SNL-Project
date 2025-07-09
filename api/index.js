@@ -83,9 +83,9 @@ async function sendRollAnnouncement(game, team, diceRoll, oldPosition, newPositi
   }
 }
 
-// Middleware
-app.use(express.json({ limit: '300mb' }));
-app.use(express.urlencoded({ limit: '300mb', extended: true }));
+// Middleware with more reasonable payload limits
+app.use(express.json({ limit: '10mb' })); // Reduced from 300mb to 10mb
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // CORS middleware for dashboard access
 app.use((req, res, next) => {
@@ -436,6 +436,16 @@ app.post('/api/games', async (req, res) => {
       ladderCount = 0
     } = req.body;
     
+    console.log(`Creating game "${name}" with ${Object.keys(tileTasks).length} tiles`);
+    logMemoryUsage();
+
+    // Validate image sizes in tileTasks
+    try {
+      validateTileTasksSize(tileTasks);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+    
     const gameId = uuidv4();
     
     const newGame = new Game({
@@ -455,9 +465,13 @@ app.post('/api/games', async (req, res) => {
     });
     
     await newGame.save();
+    console.log(`Game "${name}" created successfully`);
+    logMemoryUsage();
+    
     res.status(201).json(newGame);
   } catch (error) {
     console.error('Error creating game:', error);
+    logMemoryUsage();
     res.status(500).json({ error: error.message });
   }
 });
@@ -1064,6 +1078,9 @@ app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
     const { gameId, tileNumber } = req.params;
     const { description, imageUrl, uploadedImageUrl, uploadedImageName } = req.body;
 
+    console.log(`Updating tile ${tileNumber} in game ${gameId}`);
+    logMemoryUsage();
+
     const game = await Game.findOne({ gameId });
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
@@ -1073,6 +1090,15 @@ app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
     const tileNum = parseInt(tileNumber);
     if (tileNum < 1 || tileNum > 100) {
       return res.status(400).json({ error: 'Tile number must be between 1 and 100' });
+    }
+
+    // Validate uploaded image if provided
+    if (uploadedImageUrl) {
+      try {
+        validateAndOptimizeImage(uploadedImageUrl, 500); // 500KB limit per image
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
     }
 
     // Update the specific tile
@@ -1233,6 +1259,79 @@ app.get("/health-check", (req, res) => {
   console.log("Health check endpoint hit");
   res.status(200).json({ status: "OK" });
 });
+
+// Image optimization helpers
+const validateAndOptimizeImage = (base64String, maxSizeKB = 500) => {
+  if (!base64String || typeof base64String !== 'string') {
+    return base64String;
+  }
+
+  // Check if it's a valid base64 image
+  const base64Regex = /^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/;
+  const match = base64String.match(base64Regex);
+  
+  if (!match) {
+    return base64String; // Not a base64 image, return as-is
+  }
+
+  const imageData = match[2];
+  const imageSizeBytes = (imageData.length * 3) / 4; // Approximate size of base64 decoded data
+  const imageSizeKB = imageSizeBytes / 1024;
+
+  console.log(`Image size: ${Math.round(imageSizeKB)}KB`);
+
+  if (imageSizeKB > maxSizeKB) {
+    throw new Error(`Image too large: ${Math.round(imageSizeKB)}KB. Maximum allowed: ${maxSizeKB}KB. Please compress your image.`);
+  }
+
+  return base64String;
+};
+
+const validateTileTasksSize = (tileTasks) => {
+  if (!tileTasks || typeof tileTasks !== 'object') {
+    return;
+  }
+
+  let totalImageSize = 0;
+  let imageCount = 0;
+
+  for (const [tileKey, task] of Object.entries(tileTasks)) {
+    if (task && task.uploadedImageUrl) {
+      try {
+        validateAndOptimizeImage(task.uploadedImageUrl, 500); // 500KB per image
+        
+        // Calculate approximate size
+        const base64Match = task.uploadedImageUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
+        if (base64Match) {
+          const imageSize = (base64Match[1].length * 3) / 4 / 1024; // KB
+          totalImageSize += imageSize;
+          imageCount++;
+        }
+      } catch (error) {
+        throw new Error(`Tile ${tileKey}: ${error.message}`);
+      }
+    }
+  }
+
+  console.log(`Total images: ${imageCount}, Total size: ${Math.round(totalImageSize)}KB`);
+
+  // Limit total image payload to 8MB (leaving 2MB for other data)
+  if (totalImageSize > 8192) { // 8MB in KB
+    throw new Error(`Total image payload too large: ${Math.round(totalImageSize)}KB. Maximum allowed: 8192KB (8MB). Please reduce image sizes or count.`);
+  }
+};
+
+// Memory usage logging function
+function logMemoryUsage() {
+  const usage = process.memoryUsage();
+  console.log(`Memory Usage - RSS: ${Math.round(usage.rss / 1024 / 1024)}MB, Heap: ${Math.round(usage.heapUsed / 1024 / 1024)}MB/${Math.round(usage.heapTotal / 1024 / 1024)}MB, External: ${Math.round(usage.external / 1024 / 1024)}MB`);
+}
+
+// Log memory usage every 5 minutes
+setInterval(logMemoryUsage, 5 * 60 * 1000);
+
+// Log memory usage on startup
+logMemoryUsage();
 
 app.listen(PORT, () => {
   console.log(`SNL API server running on port ${PORT}`);

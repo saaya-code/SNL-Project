@@ -55,7 +55,7 @@ async function convertImageToDataUrl(imageUrl, maxSize = 140) {
         fit: 'cover',
         position: 'center'
       })
-      .jpeg({ quality: 80 }) // Convert to JPEG for smaller size
+      .jpeg({ quality: 95 }) // Higher quality for better image clarity
       .toBuffer();
 
     // Convert to base64 data URL
@@ -183,15 +183,14 @@ async function createGameBoardSVG(game, teams) {
     <svg width="${BOARD_SIZE}" height="${BOARD_SIZE}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
       <defs>
         <style>
-          .tile { fill: #f8f8f8; stroke: #444; stroke-width: 3; }
-          .tile-alt { fill: #e8e8e8; stroke: #444; stroke-width: 3; }
-          .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #222; }
-          .task-text { font-family: Arial; font-size: 12px; fill: #555; }
+          .tile { fill: #d0d0d0; stroke: #444; stroke-width: 3; }
+          .tile-alt { fill: #b8b8b8; stroke: #444; stroke-width: 3; }
+          .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; text-shadow: 1px 1px 2px rgba(255,255,255,0.8); }
           .team-marker { font-family: 'Arial Black', Arial; font-size: 16px; font-weight: bold; }
           .snake { stroke: #228B22; stroke-width: 8; fill: none; }
           .ladder { stroke: #8B4513; stroke-width: 6; fill: none; }
           .ladder-rung { stroke: #8B4513; stroke-width: 3; fill: none; }
-          .task-indicator { fill: #ffaa00; stroke: #ff8800; stroke-width: 2; }
           .board-border { fill: none; stroke: #333; stroke-width: 6; }
         </style>
         <pattern id="woodGrain" patternUnits="userSpaceOnUse" width="20" height="20">
@@ -234,36 +233,31 @@ async function createGameBoardSVG(game, teams) {
       
       svgContent += `
         <image x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
-               href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid slice"/>
-        <!-- Semi-transparent overlay to ensure tile number is visible -->
-        <rect x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
-              fill="rgba(255,255,255,0.3)" rx="8" ry="8"/>
+               href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid meet"/>
       `;
     }
     
     // Tile number with background circle
-    svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="white" stroke="#444" stroke-width="2"/>`;
+    svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="rgba(0,0,0,0.7)" stroke="#fff" stroke-width="2"/>`;
     svgContent += `<text x="${x + 25}" y="${y + 32}" text-anchor="middle" class="tile-number">${i}</text>`;
     
-    // Check for task and add task indicator
+    // Check for task and add task text over the image
     if (task) {
       const taskName = escapeXml(task.name || task.description || 'Task');
-      svgContent += `<circle cx="${x + TILE_SIZE - 20}" cy="${y + 20}" r="10" class="task-indicator"/>`;
-      svgContent += `<text x="${x + TILE_SIZE - 20}" y="${y + 26}" text-anchor="middle" font-size="14" font-weight="bold" fill="white">T</text>`;
       
-      // Add task name below tile number (only if no image or image doesn't cover text area)
-      if (!hasImage) {
-        const words = taskName.split(' ');
-        let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
-        let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
-        
-        if (line1.length > 15) line1 = line1.substring(0, 13) + '...';
-        if (line2.length > 15) line2 = line2.substring(0, 13) + '...';
-        
-        svgContent += `<text x="${x + 8}" y="${y + 55}" class="task-text">${escapeXml(line1)}</text>`;
-        if (line2) {
-          svgContent += `<text x="${x + 8}" y="${y + 70}" class="task-text">${escapeXml(line2)}</text>`;
-        }
+      // Add task name centered below tile number (displayed over image if present)
+      const words = taskName.split(' ');
+      let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
+      let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
+      
+      if (line1.length > 15) line1 = line1.substring(0, 13) + '...';
+      if (line2.length > 15) line2 = line2.substring(0, 13) + '...';
+      
+      const centerX = x + TILE_SIZE / 2;
+      
+      svgContent += `<text x="${centerX}" y="${y + 55}" text-anchor="middle" class="task-text">${escapeXml(line1)}</text>`;
+      if (line2) {
+        svgContent += `<text x="${centerX}" y="${y + 70}" text-anchor="middle" class="task-text">${escapeXml(line2)}</text>`;
       }
     }
   }
@@ -296,14 +290,6 @@ async function createGameBoardSVG(game, teams) {
     svgContent += `<circle cx="${pos.x + 45 + offset}" cy="${pos.y + 95}" r="18" fill="${color}" stroke="#000" stroke-width="3"/>`;
     svgContent += `<text x="${pos.x + 45 + offset}" y="${pos.y + 102}" text-anchor="middle" class="team-marker" fill="white">${escapeXml(team.teamName.charAt(team.teamName.length - 1))}</text>`;
   });
-
-  // Add game info with enhanced styling
-  svgContent += `
-    <rect x="15" y="15" width="280" height="85" fill="rgba(255,255,255,0.95)" stroke="#333" stroke-width="2" rx="10" ry="10"/>
-    <text x="25" y="40" font-family="Arial Black" font-size="18" font-weight="bold" fill="#333">${escapeXml(game.name)}</text>
-    <text x="25" y="60" font-family="Arial" font-size="14" fill="#666">Teams: ${teams.length} | Status: ${escapeXml(game.status.toUpperCase())}</text>
-    <text x="25" y="78" font-family="Arial" font-size="12" fill="#888">Snakes: ${Object.keys(snakes).length} | Ladders: ${Object.keys(ladders).length}</text>
-  `;
 
   svgContent += '</svg>';
   
