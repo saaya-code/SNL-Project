@@ -50,19 +50,43 @@ async function convertImageToDataUrl(imageUrl, maxSize = 140) {
     }
 
     // Process with Sharp to resize and optimize
-    const processedBuffer = await sharp(imageBuffer)
-      .resize(maxSize, maxSize, {
-        fit: 'cover',
-        position: 'center'
-      })
-      .jpeg({ quality: 95 }) // Higher quality for better image clarity
-      .toBuffer();
+    // Detect the original format to preserve PNG transparency
+    const metadata = await sharp(imageBuffer).metadata();
+    const originalFormat = metadata.format;
+    
+    let processedBuffer;
+    let mimeType;
+    
+    if (originalFormat === 'png') {
+      // Keep PNG format to preserve transparency
+      processedBuffer = await sharp(imageBuffer)
+        .resize(maxSize, maxSize, {
+          fit: 'inside', // Use 'inside' to maintain aspect ratio
+          withoutEnlargement: true
+        })
+        .png({ 
+          quality: 95,
+          compressionLevel: 6
+        })
+        .toBuffer();
+      mimeType = 'image/png';
+    } else {
+      // Convert other formats to JPEG
+      processedBuffer = await sharp(imageBuffer)
+        .resize(maxSize, maxSize, {
+          fit: 'inside', // Use 'inside' to maintain aspect ratio
+          withoutEnlargement: true
+        })
+        .jpeg({ quality: 95 })
+        .toBuffer();
+      mimeType = 'image/jpeg';
+    }
 
     // Convert to base64 data URL
     const base64 = processedBuffer.toString('base64');
-    const dataUrl = `data:image/jpeg;base64,${base64}`;
+    const dataUrl = `data:${mimeType};base64,${base64}`;
     
-    console.log(`Successfully converted image to data URL (${Math.round(dataUrl.length / 1024)}KB)`);
+    console.log(`Successfully converted ${originalFormat} image to data URL (${Math.round(dataUrl.length / 1024)}KB)`);
     return dataUrl;
 
   } catch (error) {
