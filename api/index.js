@@ -1076,9 +1076,9 @@ app.put('/api/teams/exchange', async (req, res) => {
 app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
   try {
     const { gameId, tileNumber } = req.params;
-    const { description, imageUrl, uploadedImageUrl, uploadedImageName } = req.body;
+    const { name, description, imageUrl, uploadedImageUrl, uploadedImageName } = req.body;
 
-    console.log(`Updating tile ${tileNumber} in game ${gameId}`);
+    console.log(`Updating tile ${tileNumber} in game ${gameId}`, { name, description, imageUrl: imageUrl?.substring(0, 50) });
     logMemoryUsage();
 
     const game = await Game.findOne({ gameId });
@@ -1105,9 +1105,10 @@ app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
     const tileKey = tileNumber.toString();
     const currentTileTasks = game.tileTasks || new Map();
     
-    if (description || imageUrl || uploadedImageUrl || uploadedImageName) {
+    if (name || description || imageUrl || uploadedImageUrl || uploadedImageName) {
       // Update or create tile task
       const tileTask = {
+        name: name || '',
         description: description || '',
         imageUrl: imageUrl || '',
         uploadedImageUrl: uploadedImageUrl || '',

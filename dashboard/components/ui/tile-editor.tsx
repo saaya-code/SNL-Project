@@ -51,43 +51,25 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
         canvas.width = width
         canvas.height = height
 
-        // Draw and compress
+        // Fill with white background for PNG transparency
+        ctx!.fillStyle = '#ffffff'
+        ctx!.fillRect(0, 0, width, height)
+
+        // Draw the image
         ctx?.drawImage(img, 0, 0, width, height)
         
-        // Preserve PNG format for transparent images
-        const isPng = file.type === 'image/png'
-        let result: string
+        // Convert everything to JPEG for consistency and better compression
+        let quality = 0.9 // Start with good quality
+        let result = canvas.toDataURL('image/jpeg', quality)
         
-        if (isPng) {
-          // For PNG, just use PNG format (no quality parameter)
-          result = canvas.toDataURL('image/png')
-          
-          // If PNG is too large, we might need to reduce dimensions instead
-          if (result.length > maxSizeKB * 1024 * 4/3) {
-            // Try reducing dimensions for PNG
-            const reductionFactor = Math.sqrt((maxSizeKB * 1024 * 4/3) / result.length)
-            const newWidth = Math.floor(width * reductionFactor)
-            const newHeight = Math.floor(height * reductionFactor)
-            
-            canvas.width = newWidth
-            canvas.height = newHeight
-            ctx?.drawImage(img, 0, 0, newWidth, newHeight)
-            result = canvas.toDataURL('image/png')
-          }
-        } else {
-          // For non-PNG images, use JPEG compression
-          let quality = 0.95 // Start with higher quality
+        // Reduce quality until size is acceptable
+        while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.4) { // Base64 is ~4/3 of binary size
+          quality -= 0.1
           result = canvas.toDataURL('image/jpeg', quality)
-          
-          // Reduce quality until size is acceptable
-          while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.3) { // Base64 is ~4/3 of binary size
-            quality -= 0.05 // Smaller quality steps for better results
-            result = canvas.toDataURL('image/jpeg', quality)
-          }
         }
 
         const finalSizeKB = Math.round((result.length * 3) / 4 / 1024)
-        console.log(`Compressed ${isPng ? 'PNG' : 'JPEG'} image to ${finalSizeKB}KB`)
+        console.log(`Compressed image to JPEG: ${finalSizeKB}KB (quality: ${quality})`)
 
         if (finalSizeKB > maxSizeKB * 2) { // Allow PNG to be a bit larger due to transparency
           reject(new Error(`Image too large: ${finalSizeKB}KB. Please use a smaller image.`))
@@ -126,11 +108,12 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
       const compressedBase64 = await compressImage(file, 500) // 500KB limit
       setImagePreview(compressedBase64)
       
-      // Update form data with compressed image
+      // Update form data with compressed image and clear old image URL
       setFormData(prev => ({
         ...prev,
         uploadedImageUrl: compressedBase64,
-        uploadedImageName: file.name
+        uploadedImageName: file.name,
+        imageUrl: '' // Clear URL when uploading a new file
       }))
     } catch (error) {
       console.error('Image compression failed:', error)
@@ -155,7 +138,7 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
   const handleSave = async () => {
     const updates: any = {}
     
-    // Handle image upload if there's a new file
+    // Handle task data
     let taskData = {
       name: formData.name,
       description: formData.description,
@@ -164,53 +147,23 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
       uploadedImageName: formData.uploadedImageName
     }
     
-    if (imageFile) {
-      // Convert image to base64
-      const reader = new FileReader()
-      reader.onload = async (e) => {
-        const base64 = e.target?.result as string
-        taskData.uploadedImageUrl = base64
-        taskData.uploadedImageName = imageFile.name
-        taskData.imageUrl = '' // Clear URL if uploading file
-        
-        // Update tile task data
-        if (taskData.name || taskData.description || taskData.imageUrl || taskData.uploadedImageUrl) {
-          updates.task = taskData
-        }
-        
-        // Update snake/ladder data
-        if (snakeLadderData.type !== 'none' && snakeLadderData.destination) {
-          updates.snakeLadder = {
-            type: snakeLadderData.type,
-            destination: parseInt(snakeLadderData.destination)
-          }
-        } else if (snakeLadderData.type === 'none') {
-          // Remove snake/ladder
-          updates.snakeLadder = null
-        }
-        
-        onSave(tileNumber, updates)
-      }
-      reader.readAsDataURL(imageFile)
-    } else {
-      // No new image upload, just update with existing data
-      if (taskData.name || taskData.description || taskData.imageUrl || taskData.uploadedImageUrl) {
-        updates.task = taskData
-      }
-      
-      // Update snake/ladder data
-      if (snakeLadderData.type !== 'none' && snakeLadderData.destination) {
-        updates.snakeLadder = {
-          type: snakeLadderData.type,
-          destination: parseInt(snakeLadderData.destination)
-        }
-      } else if (snakeLadderData.type === 'none') {
-        // Remove snake/ladder
-        updates.snakeLadder = null
-      }
-      
-      onSave(tileNumber, updates)
+    // Update tile task data
+    if (taskData.name || taskData.description || taskData.imageUrl || taskData.uploadedImageUrl) {
+      updates.task = taskData
     }
+    
+    // Update snake/ladder data
+    if (snakeLadderData.type !== 'none' && snakeLadderData.destination) {
+      updates.snakeLadder = {
+        type: snakeLadderData.type,
+        destination: parseInt(snakeLadderData.destination)
+      }
+    } else if (snakeLadderData.type === 'none') {
+      // Remove snake/ladder
+      updates.snakeLadder = null
+    }
+    
+    onSave(tileNumber, updates)
   }
 
   return (

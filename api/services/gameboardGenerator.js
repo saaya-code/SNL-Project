@@ -50,45 +50,23 @@ async function convertImageToDataUrl(imageUrl, maxSize = 140) {
     }
 
     // Process with Sharp to resize and optimize
-    // Detect the original format to preserve PNG transparency
-    const metadata = await sharp(imageBuffer).metadata();
-    const originalFormat = metadata.format;
+    // Convert all images to JPEG to avoid transparency issues and ensure consistency
+    const processedBuffer = await sharp(imageBuffer)
+      .resize(maxSize, maxSize, {
+        fit: 'cover', // Use 'cover' to fill the entire tile while maintaining aspect ratio
+        withoutEnlargement: false // Allow enlargement to fill the tile
+      })
+      .flatten({ background: '#ffffff' }) // Add white background for PNG transparency
+      .jpeg({ quality: 90 }) // Convert everything to JPEG for consistency
+      .toBuffer();
     
-    let processedBuffer;
-    let mimeType;
-    
-    if (originalFormat === 'png') {
-      // Keep PNG format to preserve transparency
-      processedBuffer = await sharp(imageBuffer)
-        .resize(maxSize, maxSize, {
-          fit: 'inside', // Use 'inside' to maintain aspect ratio
-          withoutEnlargement: true
-        })
-        .png({ 
-          quality: 100, // Use maximum quality for PNG
-          compressionLevel: 6,
-          adaptiveFiltering: true, // Better compression
-          palette: false // Force RGBA for better transparency support
-        })
-        .toBuffer();
-      mimeType = 'image/png';
-    } else {
-      // Convert other formats to JPEG
-      processedBuffer = await sharp(imageBuffer)
-        .resize(maxSize, maxSize, {
-          fit: 'inside', // Use 'inside' to maintain aspect ratio
-          withoutEnlargement: true
-        })
-        .jpeg({ quality: 95 })
-        .toBuffer();
-      mimeType = 'image/jpeg';
-    }
+    const mimeType = 'image/jpeg';
 
     // Convert to base64 data URL
     const base64 = processedBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64}`;
     
-    console.log(`Successfully converted ${originalFormat} image to data URL (${Math.round(dataUrl.length / 1024)}KB)`);
+    console.log(`Successfully converted image to JPEG data URL (${Math.round(dataUrl.length / 1024)}KB)`);
     return dataUrl;
 
   } catch (error) {
@@ -160,9 +138,42 @@ async function createGameBoardSVG(game, teams) {
     if (task && (task.imageUrl || task.uploadedImageUrl)) {
       const imageUrl = task.uploadedImageUrl || task.imageUrl;
       
+      console.log(`Tile ${tileNumber} has image: ${imageUrl.substring(0, 100)}...`);
+      
       if (imageUrl.startsWith('data:')) {
-        // Already a data URL from client-side conversion, use as-is
-        console.log(`✅ Using client-converted data URL for tile ${tileNumber}`);
+        // Check if it's already a JPEG data URL
+        if (imageUrl.startsWith('data:image/jpeg')) {
+          console.log(`✅ Using client-converted JPEG data URL for tile ${tileNumber}`);
+        } else {
+          console.log(`⚠️  Non-JPEG data URL for tile ${tileNumber}, will be processed`);
+          // Try to convert it to JPEG if it's not already
+          try {
+            const base64Data = imageUrl.split(',')[1];
+            const imageBuffer = Buffer.from(base64Data, 'base64');
+            const processedBuffer = await sharp(imageBuffer)
+              .resize(140, 140, {
+                fit: 'cover',
+                withoutEnlargement: false
+              })
+              .flatten({ background: '#ffffff' })
+              .jpeg({ quality: 90 })
+              .toBuffer();
+            
+            const processedBase64 = processedBuffer.toString('base64');
+            const processedDataUrl = `data:image/jpeg;base64,${processedBase64}`;
+            
+            if (task.uploadedImageUrl) {
+              task.uploadedImageUrl = processedDataUrl;
+            } else {
+              task.imageUrl = processedDataUrl;
+            }
+            console.log(`✅ Converted to JPEG for tile ${tileNumber}`);
+          } catch (error) {
+            console.error(`❌ Failed to convert image for tile ${tileNumber}:`, error);
+            delete task.imageUrl;
+            delete task.uploadedImageUrl;
+          }
+        }
       } else if (imageUrl.startsWith('blob:')) {
         // This shouldn't happen if client-side conversion is working properly
         console.warn(`❌ Blob URL detected for tile ${tileNumber} - removing image`);
@@ -211,8 +222,9 @@ async function createGameBoardSVG(game, teams) {
         <style>
           .tile { fill: #d0d0d0; stroke: #444; stroke-width: 3; }
           .tile-alt { fill: #b8b8b8; stroke: #444; stroke-width: 3; }
-          .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
-          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; text-shadow: 1px 1px 2px rgba(255,255,255,0.8); }
+          .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #000; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; }
+          .task-text-circle { font-family: 'Arial Black', Arial; font-size: 8px; font-weight: bold; fill: #333; }
           .team-marker { font-family: 'Arial Black', Arial; font-size: 16px; font-weight: bold; }
           .snake { stroke: #228B22; stroke-width: 8; fill: none; }
           .ladder { stroke: #8B4513; stroke-width: 6; fill: none; }
@@ -257,45 +269,41 @@ async function createGameBoardSVG(game, teams) {
     if (hasImage) {
       const imageUrl = escapeXml(task.uploadedImageUrl || task.imageUrl);
       
-      // Check if it's a PNG (likely has transparency)
-      const isPng = imageUrl.includes('data:image/png');
+      // Add debugging for image processing
+      console.log(`Processing image for tile ${i}: ${imageUrl.substring(0, 50)}...`);
       
-      // Add a white background for PNG images to ensure visibility
-      if (isPng) {
+      // Ensure the image URL is valid
+      if (imageUrl && imageUrl.length > 0) {
         svgContent += `
-          <rect x="${x + 2}" y="${y + 2}" width="${TILE_SIZE - 4}" height="${TILE_SIZE - 4}" 
-                fill="white" rx="6" ry="6" opacity="0.9"/>
+          <image x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
+                 href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid slice"/>
         `;
+      } else {
+        console.warn(`Empty or invalid image URL for tile ${i}`);
       }
-      
-      svgContent += `
-        <image x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
-               href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid meet"/>
-      `;
     }
-    
-    // Tile number with background circle
-    svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="rgba(0,0,0,0.7)" stroke="#fff" stroke-width="2"/>`;
+
+    // Tile number with background circle (always rendered in top-left)
+    svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="rgba(255,255,255,0.95)" stroke="#333" stroke-width="2"/>`;
     svgContent += `<text x="${x + 25}" y="${y + 32}" text-anchor="middle" class="tile-number">${i}</text>`;
-    
-    // Check for task and add task text over the image
+
+    // If tile has a task name, display it centered in a white box (always on top of image)
     if (task && task.name) {
-      const taskName = escapeXml(task.name);
-      
-      // Add task name centered below tile number (displayed over image if present)
-      const words = taskName.split(' ');
-      let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
-      let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
-      
-      if (line1.length > 15) line1 = line1.substring(0, 13) + '...';
-      if (line2.length > 15) line2 = line2.substring(0, 13) + '...';
-      
-      const centerX = x + TILE_SIZE / 2;
-      
-      svgContent += `<text x="${centerX}" y="${y + 55}" text-anchor="middle" class="task-text">${escapeXml(line1)}</text>`;
-      if (line2) {
-        svgContent += `<text x="${centerX}" y="${y + 70}" text-anchor="middle" class="task-text">${escapeXml(line2)}</text>`;
+      const taskName = task.name;
+      // Truncate if too long for the box
+      let displayText = taskName;
+      if (displayText.length > 24) {
+        displayText = displayText.substring(0, 21) + '...';
       }
+      // White box centered in the tile
+      const boxWidth = TILE_SIZE - 18;
+      const boxHeight = 32;
+      const boxX = x + (TILE_SIZE - boxWidth) / 2;
+      const boxY = y + (TILE_SIZE - boxHeight) / 2;
+      svgContent += `
+        <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="8" ry="8" fill="white" opacity="0.92" stroke="#bbb" stroke-width="1.5"/>
+        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold">${escapeXml(displayText)}</text>
+      `;
     }
   }
 
