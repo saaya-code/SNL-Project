@@ -65,8 +65,10 @@ async function convertImageToDataUrl(imageUrl, maxSize = 140) {
           withoutEnlargement: true
         })
         .png({ 
-          quality: 95,
-          compressionLevel: 6
+          quality: 100, // Use maximum quality for PNG
+          compressionLevel: 6,
+          adaptiveFiltering: true, // Better compression
+          palette: false // Force RGBA for better transparency support
         })
         .toBuffer();
       mimeType = 'image/png';
@@ -255,6 +257,17 @@ async function createGameBoardSVG(game, teams) {
     if (hasImage) {
       const imageUrl = escapeXml(task.uploadedImageUrl || task.imageUrl);
       
+      // Check if it's a PNG (likely has transparency)
+      const isPng = imageUrl.includes('data:image/png');
+      
+      // Add a white background for PNG images to ensure visibility
+      if (isPng) {
+        svgContent += `
+          <rect x="${x + 2}" y="${y + 2}" width="${TILE_SIZE - 4}" height="${TILE_SIZE - 4}" 
+                fill="white" rx="6" ry="6" opacity="0.9"/>
+        `;
+      }
+      
       svgContent += `
         <image x="${x}" y="${y}" width="${TILE_SIZE}" height="${TILE_SIZE}" 
                href="${imageUrl}" clip-path="url(#tileClip${i})" preserveAspectRatio="xMidYMid meet"/>
@@ -266,8 +279,8 @@ async function createGameBoardSVG(game, teams) {
     svgContent += `<text x="${x + 25}" y="${y + 32}" text-anchor="middle" class="tile-number">${i}</text>`;
     
     // Check for task and add task text over the image
-    if (task) {
-      const taskName = escapeXml(task.name || task.description || 'Task');
+    if (task && task.name) {
+      const taskName = escapeXml(task.name);
       
       // Add task name centered below tile number (displayed over image if present)
       const words = taskName.split(' ');

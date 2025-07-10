@@ -54,20 +54,42 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
         // Draw and compress
         ctx?.drawImage(img, 0, 0, width, height)
         
-        // Try different quality levels
-        let quality = 0.95 // Start with higher quality
-        let result = canvas.toDataURL('image/jpeg', quality)
+        // Preserve PNG format for transparent images
+        const isPng = file.type === 'image/png'
+        let result: string
         
-        // Reduce quality until size is acceptable
-        while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.3) { // Base64 is ~4/3 of binary size
-          quality -= 0.05 // Smaller quality steps for better results
+        if (isPng) {
+          // For PNG, just use PNG format (no quality parameter)
+          result = canvas.toDataURL('image/png')
+          
+          // If PNG is too large, we might need to reduce dimensions instead
+          if (result.length > maxSizeKB * 1024 * 4/3) {
+            // Try reducing dimensions for PNG
+            const reductionFactor = Math.sqrt((maxSizeKB * 1024 * 4/3) / result.length)
+            const newWidth = Math.floor(width * reductionFactor)
+            const newHeight = Math.floor(height * reductionFactor)
+            
+            canvas.width = newWidth
+            canvas.height = newHeight
+            ctx?.drawImage(img, 0, 0, newWidth, newHeight)
+            result = canvas.toDataURL('image/png')
+          }
+        } else {
+          // For non-PNG images, use JPEG compression
+          let quality = 0.95 // Start with higher quality
           result = canvas.toDataURL('image/jpeg', quality)
+          
+          // Reduce quality until size is acceptable
+          while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.3) { // Base64 is ~4/3 of binary size
+            quality -= 0.05 // Smaller quality steps for better results
+            result = canvas.toDataURL('image/jpeg', quality)
+          }
         }
 
         const finalSizeKB = Math.round((result.length * 3) / 4 / 1024)
-        console.log(`Compressed image to ${finalSizeKB}KB at quality ${quality}`)
+        console.log(`Compressed ${isPng ? 'PNG' : 'JPEG'} image to ${finalSizeKB}KB`)
 
-        if (finalSizeKB > maxSizeKB) {
+        if (finalSizeKB > maxSizeKB * 2) { // Allow PNG to be a bit larger due to transparency
           reject(new Error(`Image too large: ${finalSizeKB}KB. Please use a smaller image.`))
         } else {
           resolve(result)
