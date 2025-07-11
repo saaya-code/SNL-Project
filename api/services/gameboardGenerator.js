@@ -223,7 +223,7 @@ async function createGameBoardSVG(game, teams) {
           .tile { fill: #d0d0d0; stroke: #444; stroke-width: 3; }
           .tile-alt { fill: #b8b8b8; stroke: #444; stroke-width: 3; }
           .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #000; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
-          .task-text { font-family: 'Arial Black', Arial; font-size: 13px; font-weight: bold; fill: #000; text-decoration: underline; }
+          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; text-decoration: underline; }
           .task-text-circle { font-family: 'Arial Black', Arial; font-size: 8px; font-weight: bold; fill: #333; }
           .team-marker { font-family: 'Arial Black', Arial; font-size: 16px; font-weight: bold; }
           .snake { stroke: #228B22; stroke-width: 8; fill: none; }
