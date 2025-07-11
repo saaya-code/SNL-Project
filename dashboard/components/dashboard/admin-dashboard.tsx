@@ -1648,7 +1648,7 @@ export default function AdminDashboard({
                               aspect-square rounded-lg text-xs font-bold transition-all relative
                               ${tileClass}
                               ${isSnake ? 'ring-2 ring-red-500' : ''}
-                              ${isLadder ? 'ring-2 ring-green-500' : ''}
+                              ${isLadder ? 'ring-2 ring-purple-500' : ''}
                               hover:bg-blue-600 hover:text-white
                               disabled:opacity-50 disabled:cursor-not-allowed
                               flex items-center justify-center
@@ -1688,7 +1688,7 @@ export default function AdminDashboard({
                         <span className="text-gray-300">Snake head</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-gray-600 rounded ring-2 ring-green-500"></div>
+                        <div className="w-4 h-4 bg-gray-600 rounded ring-2 ring-purple-500"></div>
                         <span className="text-gray-300">Ladder bottom</span>
                       </div>
                     </div>
