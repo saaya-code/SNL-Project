@@ -223,7 +223,7 @@ async function createGameBoardSVG(game, teams) {
           .tile { fill: #d0d0d0; stroke: #444; stroke-width: 3; }
           .tile-alt { fill: #b8b8b8; stroke: #444; stroke-width: 3; }
           .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #000; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
-          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; }
+          .task-text { font-family: 'Arial Black', Arial; font-size: 13px; font-weight: bold; fill: #000; text-decoration: underline; }
           .task-text-circle { font-family: 'Arial Black', Arial; font-size: 8px; font-weight: bold; fill: #333; }
           .team-marker { font-family: 'Arial Black', Arial; font-size: 16px; font-weight: bold; }
           .snake { stroke: #228B22; stroke-width: 8; fill: none; }
@@ -337,7 +337,7 @@ async function createGameBoardSVG(game, teams) {
       const boxY = y + (TILE_SIZE - boxHeight) / 2;
       svgContent += `
         <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="8" ry="8" fill="white" opacity="0.1" stroke="#bbb" stroke-width="1.5"/>
-        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold">${escapeXml(displayText)}</text>
+        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold" text-decoration="underline">${escapeXml(displayText)}</text>
       `;
     }
   }
