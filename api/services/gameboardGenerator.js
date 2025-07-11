@@ -284,27 +284,9 @@ async function createGameBoardSVG(game, teams) {
     }
 
     // Tile number with background circle (always rendered in top-left)
-    svgContent += `<circle cx="${x + 25}" cy="${y + 25}" r="18" fill="rgba(255,255,255,0.95)" stroke="#333" stroke-width="2"/>`;
-    svgContent += `<text x="${x + 25}" y="${y + 32}" text-anchor="middle" class="tile-number">${i}</text>`;
+    svgContent += `<circle cx="${x + 20}" cy="${y + 20}" r="14" fill="rgba(255,255,255,0.95)" stroke="#333" stroke-width="2"/>`;
+    svgContent += `<text x="${x + 20}" y="${y + 27}" text-anchor="middle" class="tile-number" font-size="16">${i}</text>`;
 
-    // If tile has a task name, display it centered in a white box (always on top of image)
-    if (task && task.name) {
-      const taskName = task.name;
-      // Truncate if too long for the box
-      let displayText = taskName;
-      if (displayText.length > 24) {
-        displayText = displayText.substring(0, 21) + '...';
-      }
-      // White box centered in the tile
-      const boxWidth = TILE_SIZE - 18;
-      const boxHeight = 32;
-      const boxX = x + (TILE_SIZE - boxWidth) / 2;
-      const boxY = y + (TILE_SIZE - boxHeight) / 2;
-      svgContent += `
-        <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="8" ry="8" fill="white" opacity="0.92" stroke="#bbb" stroke-width="1.5"/>
-        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold">${escapeXml(displayText)}</text>
-      `;
-    }
   }
 
   // Draw snakes
@@ -335,6 +317,30 @@ async function createGameBoardSVG(game, teams) {
     svgContent += `<circle cx="${pos.x + 45 + offset}" cy="${pos.y + 95}" r="18" fill="${color}" stroke="#000" stroke-width="3"/>`;
     svgContent += `<text x="${pos.x + 45 + offset}" y="${pos.y + 102}" text-anchor="middle" class="team-marker" fill="white">${escapeXml(team.teamName.charAt(team.teamName.length - 1))}</text>`;
   });
+
+  // Draw task text boxes on top of everything (including snakes/ladders)
+  for (let i = 1; i <= 100; i++) {
+    const { x, y } = getTilePosition(i);
+    const task = tileTasks[i];
+    
+    if (task && task.name) {
+      const taskName = task.name;
+      // Truncate if too long for the box
+      let displayText = taskName;
+      if (displayText.length > 24) {
+        displayText = displayText.substring(0, 21) + '...';
+      }
+      // White box centered in the tile
+      const boxWidth = TILE_SIZE - 18;
+      const boxHeight = 32;
+      const boxX = x + (TILE_SIZE - boxWidth) / 2;
+      const boxY = y + (TILE_SIZE - boxHeight) / 2;
+      svgContent += `
+        <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="8" ry="8" fill="white" opacity="0.1" stroke="#bbb" stroke-width="1.5"/>
+        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold">${escapeXml(displayText)}</text>
+      `;
+    }
+  }
 
   svgContent += '</svg>';
   
@@ -509,11 +515,6 @@ function drawSnake(startPos, endPos) {
       <ellipse cx="${startX + 14}" cy="${startY + 2}" rx="1" ry="0.5" fill="#000000"/>
     </g>
     
-    <!-- Snake tail (at end position) -->
-    <ellipse cx="${endX}" cy="${endY}" rx="12" ry="10" fill="#228B22" stroke="#006400" stroke-width="2"/>
-    <ellipse cx="${endX}" cy="${endY}" rx="8" ry="6" fill="#32CD32"/>
-    <ellipse cx="${endX}" cy="${endY}" rx="4" ry="3" fill="#90EE90"/>
-    
     <!-- Snake pattern on body -->
     <g opacity="0.4">
       ${points.map((point, i) => {
@@ -610,21 +611,6 @@ function drawLadder(startPos, endPos) {
     ladderSvg += `<line x1="${rungX + perpX * 0.8}" y1="${rungY + perpY * 0.8}" x2="${rungX - perpX * 0.8}" y2="${rungY - perpY * 0.8}" 
                        stroke="#F5DEB3" stroke-width="1" stroke-linecap="round" opacity="0.8"/>`;
   }
-  
-  // Ladder end decorations
-  ladderSvg += `
-    <!-- Bottom platform -->
-    <circle cx="${startX}" cy="${startY}" r="16" fill="url(#woodGradient_${uniqueId})" stroke="#8B4513" stroke-width="3"/>
-    <circle cx="${startX}" cy="${startY}" r="10" fill="#228B22" stroke="#006400" stroke-width="2"/>
-    
-    <!-- Top platform -->
-    <circle cx="${endX}" cy="${endY}" r="16" fill="url(#woodGradient_${uniqueId})" stroke="#8B4513" stroke-width="3"/>
-    <circle cx="${endX}" cy="${endY}" r="10" fill="#FFD700" stroke="#FFA500" stroke-width="2"/>
-    
-    <!-- Labels -->
-    <text x="${startX}" y="${startY + 35}" text-anchor="middle" font-size="14" fill="#000" font-weight="bold">CLIMB UP</text>
-    <text x="${endX}" y="${endY - 25}" text-anchor="middle" font-size="16" fill="#000">🪜</text>
-  `;
   
   return ladderSvg;
 }

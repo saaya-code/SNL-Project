@@ -13,20 +13,28 @@ interface TileEditorProps {
 
 export default function TileEditor({ tileNumber, initialData, onSave, onCancel, loading }: TileEditorProps) {
   const [formData, setFormData] = useState({
-    name: initialData?.name || '',
-    description: initialData?.description || '',
-    imageUrl: initialData?.imageUrl || '',
-    uploadedImageUrl: initialData?.uploadedImageUrl || '',
-    uploadedImageName: initialData?.uploadedImageName || ''
+    name: initialData?.task?.name || '',
+    description: initialData?.task?.description || '',
+    imageUrl: initialData?.task?.imageUrl || '',
+    uploadedImageUrl: initialData?.task?.uploadedImageUrl || '',
+    uploadedImageName: initialData?.task?.uploadedImageName || ''
   })
   
-  const [snakeLadderData, setSnakeLadderData] = useState({
-    type: 'none' as 'none' | 'snake' | 'ladder',
-    destination: ''
+  // Initialize snake/ladder data based on existing data
+  const [snakeLadderData, setSnakeLadderData] = useState(() => {
+    if (initialData?.snakeEnd) {
+      return { type: 'snake' as const, destination: initialData.snakeEnd.toString() }
+    } else if (initialData?.ladderEnd) {
+      return { type: 'ladder' as const, destination: initialData.ladderEnd.toString() }
+    } else {
+      return { type: 'none' as const, destination: '' }
+    }
   })
 
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(
+    initialData?.task?.uploadedImageUrl || null
+  )
   const [imageError, setImageError] = useState<string | null>(null)
 
   // Image compression function
@@ -152,15 +160,35 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
       updates.task = taskData
     }
     
-    // Update snake/ladder data
-    if (snakeLadderData.type !== 'none' && snakeLadderData.destination) {
-      updates.snakeLadder = {
-        type: snakeLadderData.type,
-        destination: parseInt(snakeLadderData.destination)
+    // Update snake/ladder data - send the correct format to backend
+    if (snakeLadderData.type === 'snake' && snakeLadderData.destination) {
+      const snakeEnd = parseInt(snakeLadderData.destination)
+      if (snakeEnd >= 1 && snakeEnd < tileNumber) {
+        updates.snakeLadder = {
+          snakeEnd: snakeEnd,
+          removeLadder: true // Remove any existing ladder
+        }
+      } else {
+        alert(`Snake destination must be less than ${tileNumber} and at least 1`)
+        return
+      }
+    } else if (snakeLadderData.type === 'ladder' && snakeLadderData.destination) {
+      const ladderEnd = parseInt(snakeLadderData.destination)
+      if (ladderEnd > tileNumber && ladderEnd <= 100) {
+        updates.snakeLadder = {
+          ladderEnd: ladderEnd,
+          removeSnake: true // Remove any existing snake
+        }
+      } else {
+        alert(`Ladder destination must be greater than ${tileNumber} and at most 100`)
+        return
       }
     } else if (snakeLadderData.type === 'none') {
-      // Remove snake/ladder
-      updates.snakeLadder = null
+      // Remove both snake and ladder
+      updates.snakeLadder = {
+        removeSnake: true,
+        removeLadder: true
+      }
     }
     
     onSave(tileNumber, updates)
@@ -296,12 +324,12 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
           </label>
           <select
             value={snakeLadderData.type}
-            onChange={(e) => setSnakeLadderData(prev => ({ ...prev, type: e.target.value as any }))}
+            onChange={(e) => setSnakeLadderData(prev => ({ ...prev, type: e.target.value as any, destination: '' }))}
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="none">None</option>
-            <option value="snake">Snake (goes down)</option>
-            <option value="ladder">Ladder (goes up)</option>
+            <option value="none">None (Remove existing snake/ladder)</option>
+            <option value="snake">Snake (goes down to lower tile)</option>
+            <option value="ladder">Ladder (goes up to higher tile)</option>
           </select>
         </div>
 
@@ -312,13 +340,33 @@ export default function TileEditor({ tileNumber, initialData, onSave, onCancel, 
             </label>
             <input
               type="number"
-              min="1"
-              max="100"
+              min={snakeLadderData.type === 'snake' ? "1" : (tileNumber + 1).toString()}
+              max={snakeLadderData.type === 'snake' ? (tileNumber - 1).toString() : "100"}
               value={snakeLadderData.destination}
               onChange={(e) => setSnakeLadderData(prev => ({ ...prev, destination: e.target.value }))}
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder={`Enter destination tile (${snakeLadderData.type === 'snake' ? 'lower' : 'higher'} number)`}
+              placeholder={
+                snakeLadderData.type === 'snake' 
+                  ? `Enter tile 1-${tileNumber - 1} (snake goes down)` 
+                  : `Enter tile ${tileNumber + 1}-100 (ladder goes up)`
+              }
             />
+            <p className="text-xs text-gray-400 mt-1">
+              {snakeLadderData.type === 'snake' 
+                ? `Snake from tile ${tileNumber} must go to a lower numbered tile (1-${tileNumber - 1})`
+                : `Ladder from tile ${tileNumber} must go to a higher numbered tile (${tileNumber + 1}-100)`
+              }
+            </p>
+          </div>
+        )}
+
+        {snakeLadderData.type === 'none' && (initialData?.snakeEnd || initialData?.ladderEnd) && (
+          <div className="bg-yellow-600/20 border border-yellow-600/50 rounded-lg p-3">
+            <p className="text-yellow-400 text-sm">
+              ⚠️ This will remove the existing {initialData?.snakeEnd ? 'snake' : 'ladder'} from this tile
+              {initialData?.snakeEnd && ` (currently goes to tile ${initialData.snakeEnd})`}
+              {initialData?.ladderEnd && ` (currently goes to tile ${initialData.ladderEnd})`}
+            </p>
           </div>
         )}
       </div>
