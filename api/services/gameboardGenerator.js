@@ -223,7 +223,7 @@ async function createGameBoardSVG(game, teams) {
           .tile { fill: #d0d0d0; stroke: #444; stroke-width: 3; }
           .tile-alt { fill: #b8b8b8; stroke: #444; stroke-width: 3; }
           .tile-number { font-family: 'Arial Black', Arial; font-size: 20px; font-weight: bold; fill: #000; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
-          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; text-decoration: underline; }
+          .task-text { font-family: 'Arial Black', Arial; font-size: 12px; font-weight: bold; fill: #000; }
           .task-text-circle { font-family: 'Arial Black', Arial; font-size: 8px; font-weight: bold; fill: #333; }
           .team-marker { font-family: 'Arial Black', Arial; font-size: 16px; font-weight: bold; }
           .snake { stroke: #228B22; stroke-width: 8; fill: none; }
@@ -325,19 +325,67 @@ async function createGameBoardSVG(game, teams) {
     
     if (task && task.name) {
       const taskName = task.name;
-      // Truncate if too long for the box
-      let displayText = taskName;
-      if (displayText.length > 24) {
-        displayText = displayText.substring(0, 21) + '...';
+      
+      // Split text into lines that fit within the tile
+      const maxBoxWidth = TILE_SIZE - 20; // Leave 10px margin on each side
+      const fontSize = 11;
+      const lineHeight = 14;
+      const maxCharsPerLine = Math.floor(maxBoxWidth / (fontSize * 0.6)); // Approximate character width
+      
+      // Split text into words and create lines
+      const words = taskName.split(' ');
+      const lines = [];
+      let currentLine = '';
+      
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= maxCharsPerLine) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            // Single word is too long, split it
+            if (word.length > maxCharsPerLine) {
+              lines.push(word.substring(0, maxCharsPerLine - 3) + '...');
+              currentLine = '';
+            } else {
+              currentLine = word;
+            }
+          }
+        }
       }
-      // White box centered in the tile
-      const boxWidth = TILE_SIZE - 18;
-      const boxHeight = 32;
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      // Limit to maximum 3 lines to prevent box from getting too large
+      const maxLines = 3;
+      if (lines.length > maxLines) {
+        lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxCharsPerLine - 3) + '...';
+        lines.splice(maxLines);
+      }
+      
+      // Calculate box dimensions based on text
+      const boxWidth = Math.min(maxBoxWidth, Math.max(60, lines.reduce((max, line) => Math.max(max, line.length * fontSize * 0.6), 0) + 16));
+      const boxHeight = Math.max(20, lines.length * lineHeight + 8); // 8px total padding
       const boxX = x + (TILE_SIZE - boxWidth) / 2;
       const boxY = y + (TILE_SIZE - boxHeight) / 2;
+      
+      // Render the box
       svgContent += `
-        <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="8" ry="8" fill="white" opacity="0.1" stroke="#bbb" stroke-width="1.5"/>
-        <text x="${x + TILE_SIZE / 2}" y="${y + TILE_SIZE / 2 + 7}" text-anchor="middle" class="task-text" font-size="14" font-weight="bold" text-decoration="underline">${escapeXml(displayText)}</text>
+        <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="6" ry="6" fill="white" opacity="0.6" stroke="#bbb" stroke-width="1"/>`;
+      
+      // Render each line of text centered in the box
+      const textStartY = boxY + boxHeight / 2 - (lines.length - 1) * lineHeight / 2;
+      lines.forEach((line, index) => {
+        const textY = textStartY + index * lineHeight + 4; // +4 for vertical centering adjustment
+        svgContent += `
+        <text x="${x + TILE_SIZE / 2}" y="${textY}" text-anchor="middle" class="task-text" font-size="${fontSize}" font-weight="bold">${escapeXml(line)}</text>`;
+      });
+      
+      svgContent += `
       `;
     }
   }
