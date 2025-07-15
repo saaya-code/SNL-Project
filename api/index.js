@@ -6,6 +6,222 @@ import Team from './models/Team.js';
 import { generateGameBoard } from './services/gameboardGenerator.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// Request queue and concurrency control for board generation
+class BoardGenerationQueue {
+  constructor(maxConcurrent = 3) { // Increased from 2 to 3
+    this.maxConcurrent = maxConcurrent;
+    this.currentRequests = 0;
+    this.queue = [];
+    this.cache = new Map(); // Simple in-memory cache for boards
+    this.cacheTimeout = 15 * 60 * 1000; // Extended to 15 minutes cache
+    this.requestTimeouts = new Map(); // Track request timeouts
+    this.maxRequestTimeout = 30000; // 30 seconds max per request
+  }
+
+  async processRequest(gameId, game, teams, requestId) {
+    // Check cache first
+    const cacheKey = this.generateCacheKey(gameId, teams);
+    const cached = this.cache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+      const cacheAge = Math.round((Date.now() - cached.timestamp) / 1000);
+      console.log(`🎯 [${requestId}] Serving from cache - Age: ${cacheAge}s`);
+      return cached.buffer;
+    }
+
+    // If at capacity, implement smart queuing
+    if (this.currentRequests >= this.maxConcurrent) {
+      // Check if there's already a request for this exact game state in queue
+      const existingQueueItem = this.queue.find(item => 
+        this.generateCacheKey(item.gameId, item.teams) === cacheKey
+      );
+      
+      if (existingQueueItem) {
+        console.log(`⏳ [${requestId}] Joining existing queue for same game state`);
+        return new Promise((resolve, reject) => {
+          // Add to the existing queue item's waiters
+          if (!existingQueueItem.waiters) {
+            existingQueueItem.waiters = [];
+          }
+          existingQueueItem.waiters.push({ resolve, reject, requestId });
+        });
+      }
+
+      console.log(`⏳ [${requestId}] Request queued - Current active: ${this.currentRequests}/${this.maxConcurrent}, Queue: ${this.queue.length}`);
+      
+      return new Promise((resolve, reject) => {
+        const queueItem = { 
+          gameId, 
+          game, 
+          teams, 
+          requestId, 
+          resolve, 
+          reject,
+          queuedAt: Date.now(),
+          waiters: [] // Other requests waiting for the same result
+        };
+        
+        this.queue.push(queueItem);
+        
+        // Set timeout for queued request
+        setTimeout(() => {
+          const index = this.queue.findIndex(item => item.requestId === requestId);
+          if (index !== -1) {
+            this.queue.splice(index, 1);
+            reject(new Error('Request timeout - too many concurrent requests'));
+          }
+        }, this.maxRequestTimeout);
+      });
+    }
+
+    return this.executeRequest(gameId, game, teams, requestId);
+  }
+
+  async executeRequest(gameId, game, teams, requestId) {
+    this.currentRequests++;
+    const startTime = Date.now();
+    console.log(`🚀 [${requestId}] Starting board generation - Active: ${this.currentRequests}/${this.maxConcurrent}`);
+
+    // Set request timeout
+    const timeoutId = setTimeout(() => {
+      console.error(`⏰ [${requestId}] Request timeout after ${this.maxRequestTimeout}ms`);
+    }, this.maxRequestTimeout);
+
+    this.requestTimeouts.set(requestId, timeoutId);
+
+    try {
+      const buffer = await generateGameBoard(game, teams);
+      
+      // Cache the result
+      const cacheKey = this.generateCacheKey(gameId, teams);
+      this.cache.set(cacheKey, {
+        buffer: Buffer.from(buffer), // Create a copy to avoid reference issues
+        timestamp: Date.now()
+      });
+      
+      // Cleanup old cache entries periodically
+      if (Math.random() < 0.1) { // 10% chance to cleanup
+        this.cleanupCache();
+      }
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ [${requestId}] Board generation complete in ${duration}ms - Active: ${this.currentRequests}/${this.maxConcurrent}`);
+      
+      return buffer;
+    } finally {
+      // Clear timeout
+      const timeoutId = this.requestTimeouts.get(requestId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        this.requestTimeouts.delete(requestId);
+      }
+
+      this.currentRequests--;
+      
+      // Process next queued request
+      if (this.queue.length > 0) {
+        const nextRequest = this.queue.shift();
+        const queueWaitTime = Date.now() - nextRequest.queuedAt;
+        console.log(`⏭️  Processing queued request after ${queueWaitTime}ms wait - Queue size: ${this.queue.length}`);
+        
+        // Execute next request asynchronously
+        setImmediate(() => {
+          this.executeRequest(nextRequest.gameId, nextRequest.game, nextRequest.teams, nextRequest.requestId)
+            .then(result => {
+              // Resolve the main request
+              nextRequest.resolve(result);
+              
+              // Resolve all waiters for the same result
+              if (nextRequest.waiters && nextRequest.waiters.length > 0) {
+                console.log(`📤 [${nextRequest.requestId}] Broadcasting result to ${nextRequest.waiters.length} waiters`);
+                nextRequest.waiters.forEach(waiter => {
+                  console.log(`📤 Broadcasting to [${waiter.requestId}]`);
+                  waiter.resolve(result);
+                });
+              }
+            })
+            .catch(error => {
+              nextRequest.reject(error);
+              
+              // Reject all waiters
+              if (nextRequest.waiters && nextRequest.waiters.length > 0) {
+                nextRequest.waiters.forEach(waiter => {
+                  waiter.reject(error);
+                });
+              }
+            });
+        });
+      }
+    }
+  }
+
+  generateCacheKey(gameId, teams) {
+    // Generate cache key based on game state and team positions
+    const teamPositions = teams.map(t => `${t.teamId}:${t.currentPosition}`).sort().join(',');
+    const gameStateHash = `${gameId}:${teamPositions}`;
+    return gameStateHash;
+  }
+
+
+
+  cleanupCache() {
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [key, cached] of this.cache.entries()) {
+      if (now - cached.timestamp > this.cacheTimeout) {
+        this.cache.delete(key);
+        cleaned++;
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`🧹 Cleaned ${cleaned} expired cache entries - Current cache size: ${this.cache.size}`);
+    }
+  }
+
+  getStats() {
+    return {
+      currentRequests: this.currentRequests,
+      queueLength: this.queue.length,
+      cacheSize: this.cache.size,
+      maxConcurrent: this.maxConcurrent,
+      averageCacheAge: this.getAverageCacheAge()
+    };
+  }
+
+  getAverageCacheAge() {
+    if (this.cache.size === 0) return 0;
+    
+    const now = Date.now();
+    const totalAge = Array.from(this.cache.values())
+      .reduce((sum, cached) => sum + (now - cached.timestamp), 0);
+    
+    return Math.round(totalAge / this.cache.size / 1000); // Return in seconds
+  }
+
+  // Emergency method to clear everything if memory gets too high
+  clearAll() {
+    console.warn('🚨 Emergency: Clearing board generation queue and cache');
+    this.queue.length = 0;
+    this.cache.clear();
+    this.requestTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+    this.requestTimeouts.clear();
+  }
+}
+
+
+// Initialize the queue with improved concurrency settings
+const boardQueue = new BoardGenerationQueue(3); // Increased to 3 concurrent
+
+// Monitor queue stats every minute
+setInterval(() => {
+  const stats = boardQueue.getStats();
+  if (stats.currentRequests > 0 || stats.queueLength > 0 || stats.cacheSize > 0) {
+    console.log(`📊 Board Queue Stats: Active: ${stats.currentRequests}, Queued: ${stats.queueLength}, Cache: ${stats.cacheSize} entries (avg age: ${stats.averageCacheAge}s)`);
+  }
+}, 60000);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://snl:snl2025@localhost:27017/snl?authSource=admin';
@@ -302,26 +518,112 @@ app.get('/api/games/:gameId', async (req, res) => {
 
 // Game board image generation route
 app.get('/api/games/:gameId/board', async (req, res) => {
+  const requestId = uuidv4().substring(0, 8);
+  const startTime = Date.now();
+  const initialMemory = process.memoryUsage();
+  
+  console.log(`🎯 [${requestId}] Board generation request started - Initial memory: ${Math.round(initialMemory.heapUsed / 1024 / 1024)}MB`);
+  console.log(`📊 [${requestId}] Queue stats: ${JSON.stringify(boardQueue.getStats())}`);
+  
+  let imageBuffer = null;
+  
   try {
     const game = await Game.findOne({ gameId: req.params.gameId });
     if (!game) {
+      console.log(`❌ [${requestId}] Game not found: ${req.params.gameId}`);
       return res.status(404).json({ error: 'Game not found' });
     }
 
     const teams = await Team.find({ gameId: req.params.gameId });
+    console.log(`📊 [${requestId}] Found game "${game.name}" with ${teams.length} teams`);
     
-    const imageBuffer = await generateGameBoard(game, teams);
+    // Check current memory before generation
+    const beforeGeneration = process.memoryUsage();
+    const memoryUsageMB = Math.round(beforeGeneration.heapUsed / 1024 / 1024);
+    console.log(`📋 [${requestId}] Memory before generation: ${memoryUsageMB}MB`);
+    
+    // Emergency memory check - clear cache if memory is too high
+    if (memoryUsageMB > 800) { // 800MB threshold
+      console.warn(`🚨 [${requestId}] High memory usage (${memoryUsageMB}MB), clearing board cache`);
+      boardQueue.clearAll();
+      
+      // Force garbage collection if available
+      if (global.gc && process.env.NODE_ENV !== 'production') {
+        global.gc();
+        const afterGC = process.memoryUsage();
+        console.log(`🧹 [${requestId}] Memory after GC: ${Math.round(afterGC.heapUsed / 1024 / 1024)}MB`);
+      }
+    }
+    
+    // Use the queue system with client identification to prevent concurrent overload
+    imageBuffer = await boardQueue.processRequest(req.params.gameId, game, teams, requestId);
+    
+    // Check memory after generation
+    const afterGeneration = process.memoryUsage();
+    console.log(`🖼️  [${requestId}] Board generated successfully - Size: ${Math.round(imageBuffer.length / 1024)}KB, Memory: ${Math.round(afterGeneration.heapUsed / 1024 / 1024)}MB`);
     
     res.set({
       'Content-Type': 'image/png',
       'Content-Length': imageBuffer.length,
-      'Cache-Control': 'no-cache'
+      'Cache-Control': 'public, max-age=900', // 15 minute browser cache to reduce requests
+      'X-Request-ID': requestId,
+      'X-Queue-Stats': JSON.stringify(boardQueue.getStats()),
+      'X-Cache-Advice': 'Consider caching this response for 15 minutes'
     });
     
     res.send(imageBuffer);
+    
+    const endTime = Date.now();
+    const finalMemory = process.memoryUsage();
+    console.log(`✅ [${requestId}] Board generation complete - Total time: ${endTime - startTime}ms, Final memory: ${Math.round(finalMemory.heapUsed / 1024 / 1024)}MB`);
+    
   } catch (error) {
-    console.error('Error generating game board:', error);
-    res.status(500).json({ error: 'Failed to generate game board' });
+    const errorMemory = process.memoryUsage();
+    console.error(`❌ [${requestId}] Error generating game board (Memory: ${Math.round(errorMemory.heapUsed / 1024 / 1024)}MB):`, error);
+    
+    // Handle different types of errors
+    if (error.message.includes('Rate limit exceeded')) {
+      res.status(429).json({ 
+        error: 'Too many requests. Please wait before requesting the board again.',
+        requestId: requestId,
+        retryAfter: 30,
+        queueStats: boardQueue.getStats()
+      });
+    } else if (error.message.includes('timeout') || error.message.includes('too many concurrent')) {
+      res.status(503).json({ 
+        error: 'Server is busy processing other board requests. Please try again in a few seconds.',
+        requestId: requestId,
+        queueStats: boardQueue.getStats(),
+        retryAfter: 10
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Failed to generate game board',
+        requestId: requestId,
+        memory: Math.round(errorMemory.heapUsed / 1024 / 1024) + 'MB'
+      });
+    }
+  } finally {
+    // Force cleanup
+    try {
+      imageBuffer = null;
+      
+      // Force garbage collection in development mode
+      if (global.gc && process.env.NODE_ENV !== 'production') {
+        global.gc();
+        const cleanupMemory = process.memoryUsage();
+        console.log(`🧹 [${requestId}] Memory after cleanup: ${Math.round(cleanupMemory.heapUsed / 1024 / 1024)}MB`);
+      }
+      
+      // Log warning if memory usage is high
+      const finalMemory = process.memoryUsage();
+      const memoryUsageMB = Math.round(finalMemory.heapUsed / 1024 / 1024);
+      if (memoryUsageMB > 512) { // Warn if over 512MB
+        console.warn(`⚠️  [${requestId}] High memory usage detected: ${memoryUsageMB}MB`);
+      }
+    } catch (cleanupError) {
+      console.warn(`⚠️  [${requestId}] Error during cleanup:`, cleanupError.message);
+    }
   }
 });
 
@@ -448,6 +750,16 @@ app.post('/api/games', async (req, res) => {
     
     const gameId = uuidv4();
     
+    // Convert snakes and ladders to Maps and calculate actual counts
+    const snakesMap = new Map(Object.entries(snakes).map(([k, v]) => [k, Number(v)]));
+    const laddersMap = new Map(Object.entries(ladders).map(([k, v]) => [k, Number(v)]));
+    
+    // Calculate actual counts from the Maps (more reliable than passed values)
+    const actualSnakeCount = snakesMap.size;
+    const actualLadderCount = laddersMap.size;
+    
+    console.log(`Game counts - Snakes: ${actualSnakeCount}, Ladders: ${actualLadderCount}`);
+    
     const newGame = new Game({
       gameId,
       name,
@@ -457,15 +769,15 @@ app.post('/api/games', async (req, res) => {
       channelId: 'dashboard-created',
       status: 'pending',
       tileTasks: new Map(Object.entries(tileTasks)),
-      snakes: new Map(Object.entries(snakes).map(([k, v]) => [k, Number(v)])),
-      ladders: new Map(Object.entries(ladders).map(([k, v]) => [k, Number(v)])),
+      snakes: snakesMap,
+      ladders: laddersMap,
       participants: [],
-      snakeCount,
-      ladderCount
+      snakeCount: actualSnakeCount,
+      ladderCount: actualLadderCount
     });
     
     await newGame.save();
-    console.log(`Game "${name}" created successfully`);
+    console.log(`Game "${name}" created successfully with ${actualSnakeCount} snakes and ${actualLadderCount} ladders`);
     logMemoryUsage();
     
     res.status(201).json(newGame);
@@ -1175,6 +1487,8 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
     const { gameId, tileNumber } = req.params;
     const { snakeEnd, ladderEnd, removeSnake, removeLadder } = req.body;
 
+    console.log(`Updating snake/ladder for tile ${tileNumber} in game ${gameId}`, { snakeEnd, ladderEnd, removeSnake, removeLadder });
+
     const game = await Game.findOne({ gameId });
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
@@ -1187,14 +1501,27 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
     }
 
     const tileKey = tileNumber.toString();
+    let snakeCountChanged = false;
+    let ladderCountChanged = false;
     
     // Handle snake updates
     if (removeSnake) {
-      game.snakes.delete(tileKey);
+      if (game.snakes.has(tileKey)) {
+        game.snakes.delete(tileKey);
+        snakeCountChanged = true;
+        console.log(`Removed snake from tile ${tileNum}`);
+      }
     } else if (snakeEnd !== undefined && snakeEnd !== null) {
       const snakeEndNum = parseInt(snakeEnd);
       if (snakeEndNum >= 1 && snakeEndNum < tileNum) {
+        const hadSnake = game.snakes.has(tileKey);
         game.snakes.set(tileKey, snakeEndNum);
+        if (!hadSnake) {
+          snakeCountChanged = true;
+          console.log(`Added snake from tile ${tileNum} to ${snakeEndNum}`);
+        } else {
+          console.log(`Updated snake from tile ${tileNum} to ${snakeEndNum}`);
+        }
       } else {
         return res.status(400).json({ error: 'Snake end must be less than snake start and >= 1' });
       }
@@ -1202,15 +1529,36 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
     
     // Handle ladder updates
     if (removeLadder) {
-      game.ladders.delete(tileKey);
+      if (game.ladders.has(tileKey)) {
+        game.ladders.delete(tileKey);
+        ladderCountChanged = true;
+        console.log(`Removed ladder from tile ${tileNum}`);
+      }
     } else if (ladderEnd !== undefined && ladderEnd !== null) {
       const ladderEndNum = parseInt(ladderEnd);
       if (ladderEndNum > tileNum && ladderEndNum <= 100) {
+        const hadLadder = game.ladders.has(tileKey);
         game.ladders.set(tileKey, ladderEndNum);
+        if (!hadLadder) {
+          ladderCountChanged = true;
+          console.log(`Added ladder from tile ${tileNum} to ${ladderEndNum}`);
+        } else {
+          console.log(`Updated ladder from tile ${tileNum} to ${ladderEndNum}`);
+        }
       } else {
         return res.status(400).json({ error: 'Ladder end must be greater than ladder start and <= 100' });
       }
     }
+
+    // Update counts based on actual Map sizes
+    const newSnakeCount = game.snakes.size;
+    const newLadderCount = game.ladders.size;
+    
+    console.log(`Snake count: ${game.snakeCount} -> ${newSnakeCount}`);
+    console.log(`Ladder count: ${game.ladderCount} -> ${newLadderCount}`);
+    
+    game.snakeCount = newSnakeCount;
+    game.ladderCount = newLadderCount;
 
     await game.save();
     
@@ -1222,6 +1570,10 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
         snakeEnd: game.snakes.get(tileKey) || null,
         hasLadder: game.ladders.has(tileKey),
         ladderEnd: game.ladders.get(tileKey) || null
+      },
+      counts: {
+        snakeCount: game.snakeCount,
+        ladderCount: game.ladderCount
       }
     });
   } catch (error) {
@@ -1261,77 +1613,162 @@ app.get("/health-check", (req, res) => {
   res.status(200).json({ status: "OK" });
 });
 
-// Image optimization helpers
-const validateAndOptimizeImage = (base64String, maxSizeKB = 500) => {
-  if (!base64String || typeof base64String !== 'string') {
-    return base64String;
-  }
-
-  // Check if it's a valid base64 image
-  const base64Regex = /^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/;
-  const match = base64String.match(base64Regex);
+// Board generation queue status endpoint
+app.get("/api/queue-status", (req, res) => {
+  const stats = boardQueue.getStats();
+  const memoryUsage = process.memoryUsage();
   
-  if (!match) {
-    return base64String; // Not a base64 image, return as-is
+  res.json({
+    status: "OK",
+    queue: stats,
+    memory: {
+      heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+      heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      rss: Math.round(memoryUsage.rss / 1024 / 1024),
+      external: Math.round(memoryUsage.external / 1024 / 1024)
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Utility endpoint to recalculate and fix snake/ladder counts for a game
+app.post('/api/games/:gameId/recalculate-counts', async (req, res) => {
+  try {
+    const { gameId } = req.params;
+
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    const oldSnakeCount = game.snakeCount;
+    const oldLadderCount = game.ladderCount;
+    
+    // Recalculate counts based on actual Map sizes
+    const newSnakeCount = game.snakes.size;
+    const newLadderCount = game.ladders.size;
+    
+    console.log(`Recalculating counts for game "${game.name}"`);
+    console.log(`Snake count: ${oldSnakeCount} -> ${newSnakeCount}`);
+    console.log(`Ladder count: ${oldLadderCount} -> ${newLadderCount}`);
+    
+    game.snakeCount = newSnakeCount;
+    game.ladderCount = newLadderCount;
+
+    await game.save();
+    
+    res.json({
+      message: 'Counts recalculated successfully',
+      changes: {
+        snakeCount: { old: oldSnakeCount, new: newSnakeCount },
+        ladderCount: { old: oldLadderCount, new: newLadderCount }
+      },
+      actualCounts: {
+        snakeCount: newSnakeCount,
+        ladderCount: newLadderCount
+      }
+    });
+  } catch (error) {
+    console.error('Error recalculating counts:', error);
+    res.status(500).json({ error: error.message });
   }
+});
 
-  const imageData = match[2];
-  const imageSizeBytes = (imageData.length * 3) / 4; // Approximate size of base64 decoded data
-  const imageSizeKB = imageSizeBytes / 1024;
-
-  console.log(`Image size: ${Math.round(imageSizeKB)}KB`);
-
-  if (imageSizeKB > maxSizeKB) {
-    throw new Error(`Image too large: ${Math.round(imageSizeKB)}KB. Maximum allowed: ${maxSizeKB}KB. Please compress your image.`);
-  }
-
-  return base64String;
-};
-
-const validateTileTasksSize = (tileTasks) => {
-  if (!tileTasks || typeof tileTasks !== 'object') {
-    return;
-  }
-
-  let totalImageSize = 0;
-  let imageCount = 0;
-
-  for (const [tileKey, task] of Object.entries(tileTasks)) {
-    if (task && task.uploadedImageUrl) {
-      try {
-        validateAndOptimizeImage(task.uploadedImageUrl, 500); // 500KB per image
-        
-        // Calculate approximate size
-        const base64Match = task.uploadedImageUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
-        if (base64Match) {
-          const imageSize = (base64Match[1].length * 3) / 4 / 1024; // KB
-          totalImageSize += imageSize;
-          imageCount++;
+// Validation functions for tile tasks and images
+function validateTileTasksSize(tileTasks) {
+  const maxTasksSize = 50 * 1024 * 1024; // 50MB total limit for all tile tasks
+  let totalSize = 0;
+  
+  for (const [tileNumber, task] of Object.entries(tileTasks)) {
+    if (task && (task.imageUrl || task.uploadedImageUrl)) {
+      const imageUrl = task.uploadedImageUrl || task.imageUrl;
+      if (imageUrl && imageUrl.startsWith('data:')) {
+        // Calculate base64 size
+        const base64Data = imageUrl.split(',')[1];
+        if (base64Data) {
+          totalSize += base64Data.length;
         }
-      } catch (error) {
-        throw new Error(`Tile ${tileKey}: ${error.message}`);
       }
     }
   }
-
-  console.log(`Total images: ${imageCount}, Total size: ${Math.round(totalImageSize)}KB`);
-
-  // Limit total image payload to 8MB (leaving 2MB for other data)
-  if (totalImageSize > 8192) { // 8MB in KB
-    throw new Error(`Total image payload too large: ${Math.round(totalImageSize)}KB. Maximum allowed: 8192KB (8MB). Please reduce image sizes or count.`);
+  
+  if (totalSize > maxTasksSize) {
+    throw new Error(`Total tile tasks size (${Math.round(totalSize / 1024 / 1024)}MB) exceeds limit (${Math.round(maxTasksSize / 1024 / 1024)}MB)`);
   }
-};
-
-// Memory usage logging function
-function logMemoryUsage() {
-  const usage = process.memoryUsage();
-  console.log(`Memory Usage - RSS: ${Math.round(usage.rss / 1024 / 1024)}MB, Heap: ${Math.round(usage.heapUsed / 1024 / 1024)}MB/${Math.round(usage.heapTotal / 1024 / 1024)}MB, External: ${Math.round(usage.external / 1024 / 1024)}MB`);
+  
+  console.log(`✅ Tile tasks validation passed - Total size: ${Math.round(totalSize / 1024)}KB`);
 }
 
-// Log memory usage every 5 minutes
-setInterval(logMemoryUsage, 5 * 60 * 1000);
+function validateAndOptimizeImage(imageUrl, maxSizeKB = 500) {
+  if (!imageUrl || !imageUrl.startsWith('data:')) {
+    return; // Skip validation for non-data URLs
+  }
+  
+  try {
+    const base64Data = imageUrl.split(',')[1];
+    if (!base64Data) {
+      throw new Error('Invalid data URL format');
+    }
+    
+    const sizeKB = Math.round((base64Data.length * 3) / 4 / 1024); // Base64 to bytes conversion
+    
+    if (sizeKB > maxSizeKB) {
+      throw new Error(`Image size (${sizeKB}KB) exceeds limit (${maxSizeKB}KB). Please compress the image.`);
+    }
+    
+    console.log(`✅ Image validation passed - Size: ${sizeKB}KB`);
+  } catch (error) {
+    throw new Error(`Image validation failed: ${error.message}`);
+  }
+}
 
-// Log memory usage on startup
+// Memory monitoring middleware
+function logMemoryUsage() {
+  const usage = process.memoryUsage();
+  const timestamp = new Date().toISOString();
+  const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
+  const heapTotalMB = Math.round(usage.heapTotal / 1024 / 1024);
+  const rssMB = Math.round(usage.rss / 1024 / 1024);
+  
+  console.log(`💾 [${timestamp}] Memory usage - Heap: ${heapUsedMB}MB / ${heapTotalMB}MB, RSS: ${rssMB}MB, External: ${Math.round(usage.external / 1024 / 1024)}MB`);
+  
+  // Emergency memory management
+  if (heapUsedMB > 600) { // Emergency threshold
+    console.error(`🚨 EMERGENCY: Critical memory usage: ${heapUsedMB}MB - Clearing all caches and forcing GC`);
+    boardQueue.clearAll();
+    
+    if (global.gc) {
+      global.gc();
+      const afterGC = process.memoryUsage();
+      console.log(`🧹 Memory after emergency GC: ${Math.round(afterGC.heapUsed / 1024 / 1024)}MB`);
+    }
+  } else if (heapUsedMB > 400) { // Warning threshold
+    console.warn(`⚠️  High memory usage detected: ${heapUsedMB}MB - Queue stats: ${JSON.stringify(boardQueue.getStats())}`);
+    
+    // Clear cache if memory is high
+    if (boardQueue.cache.size > 0) {
+      boardQueue.cache.clear();
+      console.log(`🧹 Cleared board cache due to high memory usage`);
+    }
+  } else if (heapUsedMB > 256) { // Monitor threshold
+    console.warn(`� Elevated memory usage: ${heapUsedMB}MB - Queue: ${boardQueue.currentRequests} active, ${boardQueue.queue.length} queued`);
+  }
+}
+
+// Log memory usage every 30 seconds
+setInterval(logMemoryUsage, 30000);
+
+// Force garbage collection every 2 minutes in development
+if (global.gc && process.env.NODE_ENV !== 'production') {
+  setInterval(() => {
+    console.log('🧹 Forcing garbage collection...');
+    global.gc();
+    logMemoryUsage();
+  }, 120000);
+}
+
+// Log initial memory usage
+console.log('🚀 Server starting - Initial memory usage:');
 logMemoryUsage();
 
 app.listen(PORT, () => {

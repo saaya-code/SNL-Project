@@ -21,7 +21,7 @@ const TeamSchema = new mongoose.Schema({
   },
   channelId: { type: String, required: true },
   currentPosition: { type: Number, default: 1 },
-  canRoll: { type: Boolean, default: true },
+  canRoll: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 }, {
   timestamps: true,
