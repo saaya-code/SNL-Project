@@ -162,7 +162,59 @@ class BoardGenerationQueue {
     return gameStateHash;
   }
 
+  // Invalidate cache for a specific game when game state changes
+  invalidateGameCache(gameId) {
+    let invalidatedCount = 0;
+    
+    // Remove all cache entries for this specific game
+    for (const [cacheKey, cached] of this.cache.entries()) {
+      if (cacheKey.startsWith(`${gameId}:`)) {
+        this.cache.delete(cacheKey);
+        invalidatedCount++;
+      }
+    }
+    
+    if (invalidatedCount > 0) {
+      console.log(`🗑️ Invalidated ${invalidatedCount} cache entries for game ${gameId}`);
+    }
+    
+    return invalidatedCount;
+  }
 
+  // Add method to invalidate all cache
+  invalidateAllCache() {
+    const cacheSize = this.cache.size;
+    this.cache.clear();
+    console.log(`🗑️ Invalidated all ${cacheSize} cache entries`);
+    return cacheSize;
+  }
+
+  // Invalidate cache for a specific game when game state changes
+  invalidateGameCache(gameId) {
+    let invalidatedCount = 0;
+    
+    // Remove all cache entries for this specific game
+    for (const [cacheKey, cached] of this.cache.entries()) {
+      if (cacheKey.startsWith(`${gameId}:`)) {
+        this.cache.delete(cacheKey);
+        invalidatedCount++;
+      }
+    }
+    
+    if (invalidatedCount > 0) {
+      console.log(`🗑️ Invalidated ${invalidatedCount} cache entries for game ${gameId}`);
+    }
+    
+    return invalidatedCount;
+  }
+
+  // Add method to invalidate all cache
+  invalidateAllCache() {
+    const cacheSize = this.cache.size;
+    this.cache.clear();
+    console.log(`🗑️ Invalidated all ${cacheSize} cache entries`);
+    return cacheSize;
+  }
 
   cleanupCache() {
     const now = Date.now();
@@ -1044,6 +1096,10 @@ app.post('/api/games/:gameId/reset', async (req, res) => {
           canRoll: true 
         }
       );
+      
+      // IMPORTANT: Invalidate board cache for this game so reset positions appear immediately
+      const invalidatedCount = boardQueue.invalidateGameCache(req.params.gameId);
+      console.log(`🔄 Cache invalidated for game ${req.params.gameId} after game reset - ${invalidatedCount} entries removed`);
     }
     
     res.json(game);
@@ -1266,6 +1322,10 @@ app.post('/api/teams/:teamId/roll', async (req, res) => {
     team.canRoll = false; // Prevent rolling again until next round
     await team.save();
 
+    // IMPORTANT: Invalidate board cache for this game so position changes appear immediately
+    const invalidatedCount = boardQueue.invalidateGameCache(team.gameId);
+    console.log(`🔄 Cache invalidated for game ${team.gameId} after team roll - ${invalidatedCount} entries removed`);
+
     // Send announcement if webhook is configured
     if (game && game.announcementWebhookUrl) {
       try {
@@ -1435,12 +1495,17 @@ app.put('/api/games/:gameId/tiles/:tileNumber', async (req, res) => {
     game.tileTasks = currentTileTasks;
     await game.save();
     
+    // IMPORTANT: Invalidate board cache for this game so changes appear immediately
+    const invalidatedCount = boardQueue.invalidateGameCache(gameId);
+    console.log(`🔄 Cache invalidated for game ${gameId} after tile update - ${invalidatedCount} entries removed`);
+    
     res.json({
       message: 'Tile updated successfully',
       tile: {
         number: tileNum,
         task: currentTileTasks.get(tileKey) || null
-      }
+      },
+      cacheInvalidated: invalidatedCount > 0
     });
   } catch (error) {
     console.error('Error updating tile:', error);
@@ -1562,6 +1627,10 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
 
     await game.save();
     
+    // IMPORTANT: Invalidate board cache for this game so snake/ladder changes appear immediately
+    const invalidatedCount = boardQueue.invalidateGameCache(gameId);
+    console.log(`🔄 Cache invalidated for game ${gameId} after snake/ladder update - ${invalidatedCount} entries removed`);
+    
     res.json({
       message: 'Snake/Ladder updated successfully',
       tile: {
@@ -1574,7 +1643,8 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
       counts: {
         snakeCount: game.snakeCount,
         ladderCount: game.ladderCount
-      }
+      },
+      cacheInvalidated: invalidatedCount > 0
     });
   } catch (error) {
     console.error('Error updating snake/ladder:', error);
@@ -1624,54 +1694,33 @@ app.get("/api/queue-status", (req, res) => {
     memory: {
       heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
       heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
-      rss: Math.round(memoryUsage.rss / 1024 / 1024),
-      external: Math.round(memoryUsage.external / 1024 / 1024)
+      external: Math.round(memoryUsage.external / 1024 / 1024),
+      rss: Math.round(memoryUsage.rss / 1024 / 1024)
     },
-    timestamp: new Date().toISOString()
+    uptime: process.uptime()
   });
 });
 
-// Utility endpoint to recalculate and fix snake/ladder counts for a game
-app.post('/api/games/:gameId/recalculate-counts', async (req, res) => {
-  try {
-    const { gameId } = req.params;
+// Manual cache invalidation endpoints (for debugging/admin purposes)
+app.post("/api/games/:gameId/invalidate-cache", (req, res) => {
+  const { gameId } = req.params;
+  const invalidatedCount = boardQueue.invalidateGameCache(gameId);
+  
+  res.json({
+    message: `Cache invalidated for game ${gameId}`,
+    invalidatedEntries: invalidatedCount,
+    remainingCacheSize: boardQueue.getStats().cacheSize
+  });
+});
 
-    const game = await Game.findOne({ gameId });
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
-
-    const oldSnakeCount = game.snakeCount;
-    const oldLadderCount = game.ladderCount;
-    
-    // Recalculate counts based on actual Map sizes
-    const newSnakeCount = game.snakes.size;
-    const newLadderCount = game.ladders.size;
-    
-    console.log(`Recalculating counts for game "${game.name}"`);
-    console.log(`Snake count: ${oldSnakeCount} -> ${newSnakeCount}`);
-    console.log(`Ladder count: ${oldLadderCount} -> ${newLadderCount}`);
-    
-    game.snakeCount = newSnakeCount;
-    game.ladderCount = newLadderCount;
-
-    await game.save();
-    
-    res.json({
-      message: 'Counts recalculated successfully',
-      changes: {
-        snakeCount: { old: oldSnakeCount, new: newSnakeCount },
-        ladderCount: { old: oldLadderCount, new: newLadderCount }
-      },
-      actualCounts: {
-        snakeCount: newSnakeCount,
-        ladderCount: newLadderCount
-      }
-    });
-  } catch (error) {
-    console.error('Error recalculating counts:', error);
-    res.status(500).json({ error: error.message });
-  }
+app.post("/api/cache/clear-all", (req, res) => {
+  const invalidatedCount = boardQueue.invalidateAllCache();
+  
+  res.json({
+    message: "All cache cleared",
+    invalidatedEntries: invalidatedCount,
+    remainingCacheSize: boardQueue.getStats().cacheSize
+  });
 });
 
 // Validation functions for tile tasks and images
