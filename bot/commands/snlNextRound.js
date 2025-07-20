@@ -24,6 +24,28 @@ export default {
         });
       }
 
+      // Check if game has officially started (teams can take actions)
+      if (!game.isOfficiallyStarted) {
+        return await interaction.editReply({
+          content: `⏳ Game "${game.name}" is active but has not officially started yet. Use \`/snlofficialstart\` first to allow team actions.`
+        });
+      }
+
+      // Check if game is paused
+      if (game.isPaused) {
+        return await interaction.editReply({
+          content: `⏸️ Game "${game.name}" is currently paused. Cannot start next round while game is paused.`
+        });
+      }
+
+      // Check if game has already been won
+      if (game.winnerTeamId) {
+        const winnerTeam = await Team.findOne({ teamId: game.winnerTeamId });
+        return await interaction.editReply({
+          content: `🏆 Game "${game.name}" has already been won by **${winnerTeam?.teamName || 'Unknown Team'}**! Cannot start new rounds.`
+        });
+      }
+
       // Find all teams for this game
       const teams = await Team.find({ gameId: game.gameId });
       

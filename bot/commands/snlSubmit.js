@@ -56,6 +56,28 @@ export default {
         });
       }
 
+      // Check if game has officially started (teams can take actions)
+      if (!activeGame.isOfficiallyStarted) {
+        return await interaction.editReply({
+          content: `⏳ Game "${activeGame.name}" is active but has not officially started yet. Please wait for a moderator to officially start the game before submitting tasks.`
+        });
+      }
+
+      // Check if game is paused
+      if (activeGame.isPaused) {
+        return await interaction.editReply({
+          content: `⏸️ Game "${activeGame.name}" is currently paused. Task submissions are disabled until the game is resumed.`
+        });
+      }
+
+      // Check if game has already been won
+      if (activeGame.winnerTeamId) {
+        const winnerTeam = await Team.findOne({ teamId: activeGame.winnerTeamId });
+        return await interaction.editReply({
+          content: `🏆 Game "${activeGame.name}" has already been won by **${winnerTeam?.teamName || 'Unknown Team'}**! No more submissions allowed.`
+        });
+      }
+
       // Check if team is at a valid position (not 0 or 100)
       if (activeTeam.currentPosition < 0 || activeTeam.currentPosition > 100) {
         return await interaction.editReply({

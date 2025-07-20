@@ -153,6 +153,43 @@ export default {
       // Check if this channel belongs to a team
       const team = await Team.findOne({ channelId: interaction.channelId });
       if (team) {
+        // Get the game details to check status
+        const game = await Game.findOne({ gameId: team.gameId });
+        if (!game) {
+          return await interaction.editReply({
+            content: '❌ Game not found.'
+          });
+        }
+
+        // Check if game is active
+        if (game.status !== 'active') {
+          return await interaction.editReply({
+            content: `❌ Game "${game.name}" is not currently active. Status: ${game.status}`
+          });
+        }
+
+        // Check if game has officially started (teams can take actions)
+        if (!game.isOfficiallyStarted) {
+          return await interaction.editReply({
+            content: `⏳ Game "${game.name}" is active but has not officially started yet. Teams cannot be verified until the game officially starts.`
+          });
+        }
+
+        // Check if game is paused
+        if (game.isPaused) {
+          return await interaction.editReply({
+            content: `⏸️ Game "${game.name}" is currently paused. Team verification is disabled until the game is resumed.`
+          });
+        }
+
+        // Check if game has already been won
+        if (game.winnerTeamId) {
+          const winnerTeam = await Team.findOne({ teamId: game.winnerTeamId });
+          return await interaction.editReply({
+            content: `🏆 Game "${game.name}" has already been won by **${winnerTeam?.teamName || 'Unknown Team'}**! No further verification needed.`
+          });
+        }
+
         // Allow the team to roll again
         team.canRoll = true;
         await team.save();

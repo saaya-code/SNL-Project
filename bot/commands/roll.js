@@ -141,6 +141,20 @@ export default {
         });
       }
 
+      // Check if game has officially started (teams can roll)
+      if (!game.isOfficiallyStarted) {
+        return await interaction.editReply({ 
+          content: `⏳ Game "${game.name}" is active but has not officially started yet. Please wait for a moderator to officially start the game before rolling.`
+        });
+      }
+
+      // Check if game is paused
+      if (game.isPaused) {
+        return await interaction.editReply({ 
+          content: `⏸️ Game "${game.name}" is currently paused. Rolling is disabled until the game is resumed.`
+        });
+      }
+
       // Check if game has already been won
       if (game.winnerTeamId) {
         const winnerTeam = await Team.findOne({ teamId: game.winnerTeamId });
