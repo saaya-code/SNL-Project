@@ -366,7 +366,14 @@ export async function setupGameChannels(interaction, gameId, existingTeams = nul
           .setColor('#FFA500') // Orange color to indicate not fully started
           .setTimestamp();
 
-        await announcementsChannel.send({ embeds: [channelSetupEmbed] });
+        const messageOptions = { embeds: [channelSetupEmbed] };
+        
+        // Add role ping if configured
+        if (game.pingRoleId) {
+          messageOptions.content = `<@&${game.pingRoleId}>`;
+        }
+
+        await announcementsChannel.send(messageOptions);
       } catch (error) {
         console.error('Failed to send channel setup announcement:', error);
       }

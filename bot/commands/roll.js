@@ -251,7 +251,7 @@ export default {
           }
         }
         
-        embed.addFields({ name: `📝 Tile ${newPosition} Task`, value: taskField });
+        embed.addFields({ name: `📝 Tile ${newPosition} Task: ${currentTask.name}`, value: taskField });
       } else {
         embed.addFields({ name: `📝 Tile ${newPosition}`, value: 'No special task on this tile. Safe spot!' });
       }
@@ -339,6 +339,11 @@ export default {
               const announcementOptions = { embeds: [announcementEmbed] };
               if (boardAttachment) {
                 announcementOptions.files = [boardAttachment];
+              }
+              
+              // Add role ping if configured
+              if (game.pingRoleId) {
+                announcementOptions.content = `<@&${game.pingRoleId}>`;
               }
               
               await announcementsChannel.send(announcementOptions);

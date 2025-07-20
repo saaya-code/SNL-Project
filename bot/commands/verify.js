@@ -224,9 +224,15 @@ export default {
             if (game?.announcementChannelId) {
               const announcementChannel = await interaction.guild.channels.fetch(game.announcementChannelId);
               if (announcementChannel) {
-                await announcementChannel.send({
-                  content: `🏆 **GAME OVER!** 🏆\n\n**${team.teamName}** has won **${game.name}**!\n\n🎉 Congratulations to all participants! 🎉`
-                });
+                const winContent = `🏆 **GAME OVER!** 🏆\n\n**${team.teamName}** has won **${game.name}**!\n\n🎉 Congratulations to all participants! 🎉`;
+                const messageOptions = { content: winContent };
+                
+                // Add role ping if configured
+                if (game.pingRoleId) {
+                  messageOptions.content = `<@&${game.pingRoleId}> ${winContent}`;
+                }
+                
+                await announcementChannel.send(messageOptions);
               }
             }
           } catch (err) {

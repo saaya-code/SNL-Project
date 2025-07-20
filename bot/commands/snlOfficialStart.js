@@ -9,8 +9,6 @@ export default {
     .setDescription('Officially start the game - allows teams to roll dice (Admin/Moderator only)'),
 
   async execute(interaction) {
-    await interaction.deferReply();
-
     try {
       // Check permissions
       if (!(await requireModeratorPermissions(interaction))) {
@@ -86,7 +84,14 @@ export default {
               .setColor('#00FF00')
               .setTimestamp();
 
-            await announcementChannel.send({ embeds: [announcementEmbed] });
+            const messageOptions = { embeds: [announcementEmbed] };
+            
+            // Add role ping if configured
+            if (game.pingRoleId) {
+              messageOptions.content = `<@&${game.pingRoleId}>`;
+            }
+
+            await announcementChannel.send(messageOptions);
           }
         } catch (error) {
           console.log('Could not send announcement:', error);

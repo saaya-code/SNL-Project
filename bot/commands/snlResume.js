@@ -8,8 +8,6 @@ export default {
     .setDescription('Resume a paused game - allows teams to roll again (Admin/Moderator only)'),
 
   async execute(interaction) {
-    await interaction.deferReply();
-
     try {
       // Check permissions
       if (!(await requireModeratorPermissions(interaction))) {

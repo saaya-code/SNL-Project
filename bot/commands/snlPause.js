@@ -8,8 +8,6 @@ export default {
     .setDescription('Pause the active game - prevents teams from rolling (Admin/Moderator only)'),
 
   async execute(interaction) {
-    await interaction.deferReply();
-
     try {
       // Check permissions
       if (!(await requireModeratorPermissions(interaction))) {

@@ -78,6 +78,15 @@ export default {
         });
       }
 
+      // Check if submissions are restricted to a specific channel
+      if (activeGame.submitChannelId && interaction.channelId !== activeGame.submitChannelId) {
+        const submitChannel = await interaction.guild.channels.fetch(activeGame.submitChannelId).catch(() => null);
+        const channelMention = submitChannel ? `${submitChannel}` : `channel ID: ${activeGame.submitChannelId}`;
+        return await interaction.editReply({
+          content: `📝 **Task submissions are restricted!**\n\nYou can only submit tasks in: ${channelMention}\n\nPlease use \`/snlsubmit\` in the designated submission channel.`
+        });
+      }
+
       // Check if team is at a valid position (not 0 or 100)
       if (activeTeam.currentPosition < 0 || activeTeam.currentPosition > 100) {
         return await interaction.editReply({
@@ -99,6 +108,121 @@ export default {
       // Get game parameters for moderator role
       const gameParams = await GameParameters.findOne({ guildId: interaction.guild.id });
       const moderatorRole = gameParams?.moderatorRoleId ? `<@&${gameParams.moderatorRoleId}>` : '@Moderators';
+
+      // Check if submit channel is configured
+      if (!activeGame.submitChannelId) {
+        // No submit channel configured - ping moderator
+        return await interaction.editReply({
+          content: `❌ **Submit channel not configured!**\n\n${moderatorRole} Please use \`/snlsetsubmitchannel\` to set a designated channel for task submissions before teams can submit tasks.`
+        });
+      }
+
+      // Validate that the submission is being made in the correct channel
+      if (interaction.channelId !== activeGame.submitChannelId) {
+        const submitChannel = await interaction.guild.channels.fetch(activeGame.submitChannelId);
+        return await interaction.editReply({
+          content: `❌ **Wrong channel!** Task submissions must be made in ${submitChannel}. Please go there and use \`/snlsubmit\` again.`
+        });
+      }
+
+      // Check if any moderators are online
+      let onlineModerators = [];
+      if (gameParams?.moderatorRoleId) {
+        const modRole = await interaction.guild.roles.fetch(gameParams.moderatorRoleId);
+        if (modRole) {
+          onlineModerators = modRole.members.filter(member => 
+            !member.user.bot && // Exclude bots
+            (member.presence?.status === 'online' || 
+             member.presence?.status === 'idle' ||
+             member.presence?.status === 'dnd')
+          );
+        }
+      }
+      console.log('Online moderators:', onlineModerators.map(m => m.user.tag));
+      // Auto-approve if no moderators are online
+      if (onlineModerators.map(m => m.user.tag).length === 0) {
+        // Auto-approve the submission
+        activeTeam.canRoll = true;
+        await activeTeam.save();
+
+        // Check if team reached tile 100 and auto-approve win
+        let winMessage = '';
+        if (activeTeam.currentPosition === 100) {
+          activeGame.winnerTeamId = activeTeam.teamId;
+          activeGame.status = 'completed';
+          await activeGame.save();
+
+          // Disable rolling for all teams in this game
+          await Team.updateMany(
+            { gameId: activeGame.gameId },
+            { canRoll: false }
+          );
+
+          winMessage = '\n\n🏆 **CONGRATULATIONS!** Your team has won the game!';
+        }
+
+        // Create auto-approval embed
+        const autoApprovalEmbed = new EmbedBuilder()
+          .setTitle('✅ Task Auto-Approved (No Moderators Online)')
+          .setDescription(`**Team:** ${activeTeam.teamName}\n**Position:** Tile ${activeTeam.currentPosition}\n**Game:** ${activeGame.name}`)
+          .addFields(
+            { name: 'Auto-Approval Notice', value: '⚠️ **Since no moderators are currently online, your submission has been automatically approved.**', inline: false },
+            { name: 'Important Warning', value: '🚨 **Any abuse of this system will result in team elimination. A moderator will review this submission when they come online.**', inline: false },
+            { name: 'Screenshot Submitted', value: 'Screenshot has been logged for moderator review', inline: true },
+            { name: 'Description', value: description, inline: true },
+            { name: 'Status', value: activeTeam.currentPosition === 100 ? '🏆 Game Won!' : '🎲 Can Roll Again', inline: true }
+          )
+          .setImage(screenshot.url)
+          .setColor(activeTeam.currentPosition === 100 ? '#FFD700' : '#00FF00')
+          .setFooter({ text: `Auto-approved at ${new Date().toLocaleString()} | Team ID: ${activeTeam.teamId}` })
+          .setTimestamp();
+
+        // Send auto-approval to submit channel
+        const submitChannel = await interaction.guild.channels.fetch(activeGame.submitChannelId);
+        await submitChannel.send({
+          content: `🤖 **AUTO-APPROVAL** (No moderators online)\n${moderatorRole} Please review when available`,
+          embeds: [autoApprovalEmbed]
+        });
+
+        // Send to announcements if it's a win or different channel
+        if (activeGame.announcementChannelId && 
+            (activeGame.announcementChannelId !== activeGame.submitChannelId || activeTeam.currentPosition === 100)) {
+          try {
+            const announcementChannel = await interaction.guild.channels.fetch(activeGame.announcementChannelId);
+            if (announcementChannel) {
+              const announceEmbed = new EmbedBuilder()
+                .setTitle(activeTeam.currentPosition === 100 ? '🏆 GAME WON!' : '🤖 Auto-Approved Submission')
+                .setDescription(`**${activeTeam.teamName}** ${activeTeam.currentPosition === 100 ? 'has won the game!' : 'had their task auto-approved'}`)
+                .addFields(
+                  { name: 'Position', value: `Tile ${activeTeam.currentPosition}`, inline: true },
+                  { name: 'Reason', value: 'No moderators online', inline: true },
+                  { name: 'Status', value: activeTeam.currentPosition === 100 ? 'Game Complete' : 'Can continue rolling', inline: true }
+                )
+                .setColor(activeTeam.currentPosition === 100 ? '#FFD700' : '#FFA500')
+                .setTimestamp();
+
+              const messageOptions = { embeds: [announceEmbed] };
+              
+              // Add role ping if configured
+              if (activeGame.pingRoleId) {
+                messageOptions.content = `<@&${activeGame.pingRoleId}> ${activeTeam.currentPosition === 100 ? 'Game completed!' : 'Auto-approved submission!'}`;
+              }
+
+              await announcementChannel.send(messageOptions);
+            }
+          } catch (error) {
+            console.log('Could not send auto-approval announcement:', error);
+          }
+        }
+
+        // Confirm to user
+        return await interaction.editReply({
+          content: `✅ **Task Auto-Approved!**${winMessage}\n\n` +
+                   `🤖 **No moderators are currently online, so your submission has been automatically approved.**\n\n` +
+                   `⚠️ **WARNING:** Any abuse of this auto-approval system will result in team elimination. A moderator will review your submission when they come online.\n\n` +
+                   `📋 **Details:**\n• **Team:** ${activeTeam.teamName}\n• **Position:** Tile ${activeTeam.currentPosition}\n• **Status:** ${activeTeam.currentPosition === 100 ? '🏆 Game Won!' : '🎲 Can Roll Again'}`
+        });
+      }
 
       // Get current tile task info
       const currentTask = activeGame.tileTasks.get(activeTeam.currentPosition.toString());
@@ -134,67 +258,79 @@ export default {
             .setStyle(ButtonStyle.Danger)
         );
 
-      // Find the team's channel using the game name + team name convention
-      // First try exact match with special character handling
-      const gameNamePart = activeGame.name.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '-') // Replace special characters with hyphens
-        .replace(/\s+/g, '-') // Replace spaces with hyphens
-        .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-        .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
-        .substring(0, 50);
-        
-      const teamNamePart = activeTeam.teamName.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '-') // Replace special characters with hyphens
-        .replace(/\s+/g, '-') // Replace spaces with hyphens
-        .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-        .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
-        .substring(0, 50);
-        
-      // Try multiple possible channel name formats
-      const possibleChannelNames = [
-        `${gameNamePart}-${teamNamePart}`,
-        `${gameNamePart}--${teamNamePart}`, // Double hyphen variant
-        `${activeGame.name.toLowerCase().replace(/\s+/g, '-')}-${activeTeam.teamName.toLowerCase().replace(/\s+/g, '-')}`, // Simple replacement
-      ];
-      
-      console.log(`Looking for team channel with possible names: ${possibleChannelNames.join(', ')}`);
-      console.log(`Available channels: ${interaction.guild.channels.cache.filter(c => c.isTextBased()).map(c => c.name).join(', ')}`);
-        
-      let targetChannel = null;
-      
-      // Try to find channel by exact name match first
-      for (const channelName of possibleChannelNames) {
-        targetChannel = interaction.guild.channels.cache.find(
-          channel => channel.name === channelName && channel.isTextBased()
-        );
-        if (targetChannel) break;
-      }
-      
-      // If exact match fails, try partial matching (contains team name)
-      if (!targetChannel) {
-        const teamNameForSearch = activeTeam.teamName.toLowerCase().replace(/[^a-z0-9]/g, '');
-        targetChannel = interaction.guild.channels.cache.find(
-          channel => channel.isTextBased() && 
-          channel.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(teamNameForSearch)
-        );
-      }
-      
-      // If team channel not found, use current channel as fallback
-      if (!targetChannel) {
-        targetChannel = interaction.channel;
-        console.log(`Team channel not found with any naming convention, using current channel as fallback`);
-      } else {
-        console.log(`Found team channel: ${targetChannel.name}`);
-      }
-
-      // Send the submission message to team channel with approval buttons
-      const submissionMessage = await targetChannel.send({
+      // Send the submission message to the designated submit channel with approval buttons
+      const submitChannel = await interaction.guild.channels.fetch(activeGame.submitChannelId);
+      const submissionMessage = await submitChannel.send({
+        content: `${moderatorRole} **Task submission requires review!**`,
         embeds: [submissionEmbed],
         components: [buttons]
       });
 
-      // Send notification to moderators in announcement channel (without buttons)
-      if (activeGame.announcementChannelId && targetChannel.id !== activeGame.announcementChannelId) {
+      // Send notification to team channel if it exists and is different from submit channel
+      try {
+        // Find the team's channel using the game name + team name convention
+        // First try exact match with special character handling
+        const gameNamePart = activeGame.name.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '-') // Replace special characters with hyphens
+          .replace(/\s+/g, '-') // Replace spaces with hyphens
+          .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+          .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+          .substring(0, 50);
+          
+        const teamNamePart = activeTeam.teamName.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '-') // Replace special characters with hyphens
+          .replace(/\s+/g, '-') // Replace spaces with hyphens
+          .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+          .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+          .substring(0, 50);
+          
+        // Try multiple possible channel name formats
+        const possibleChannelNames = [
+          `${gameNamePart}-${teamNamePart}`,
+          `${gameNamePart}--${teamNamePart}`, // Double hyphen variant
+          `${activeGame.name.toLowerCase().replace(/\s+/g, '-')}-${activeTeam.teamName.toLowerCase().replace(/\s+/g, '-')}`, // Simple replacement
+        ];
+        
+        let teamChannel = null;
+        
+        // Try to find channel by exact name match first
+        for (const channelName of possibleChannelNames) {
+          teamChannel = interaction.guild.channels.cache.find(
+            channel => channel.name === channelName && channel.isTextBased()
+          );
+          if (teamChannel) break;
+        }
+        
+        // If exact match fails, try partial matching (contains team name)
+        if (!teamChannel) {
+          const teamNameForSearch = activeTeam.teamName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          teamChannel = interaction.guild.channels.cache.find(
+            channel => channel.isTextBased() && 
+            channel.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(teamNameForSearch)
+          );
+        }
+        
+        // Send notification to team channel if found and different from submit channel
+        if (teamChannel && teamChannel.id !== activeGame.submitChannelId) {
+          const teamNotificationEmbed = new EmbedBuilder()
+            .setTitle('📝 Task Submission Sent')
+            .setDescription(`Your task submission has been sent for moderator review!`)
+            .addFields(
+              { name: 'Position', value: `Tile ${activeTeam.currentPosition}`, inline: true },
+              { name: 'Review Location', value: `${submitChannel}`, inline: true },
+              { name: 'Status', value: '⏳ Awaiting Approval', inline: true }
+            )
+            .setColor(0x3498db)
+            .setTimestamp();
+
+          await teamChannel.send({ embeds: [teamNotificationEmbed] });
+        }
+      } catch (error) {
+        console.log('Could not send notification to team channel:', error);
+      }
+
+      // Send notification to announcement channel if it exists and is different from submit channel
+      if (activeGame.announcementChannelId && activeGame.announcementChannelId !== activeGame.submitChannelId) {
         try {
           const announcementChannel = await interaction.guild.channels.fetch(activeGame.announcementChannelId);
           if (announcementChannel) {
@@ -202,16 +338,20 @@ export default {
               .setTitle('🔔 Task Submission Pending Review')
               .setDescription(`**Team:** ${activeTeam.teamName}\n**Position:** Tile ${activeTeam.currentPosition}\n**Game:** ${activeGame.name}`)
               .addFields(
-                { name: 'Review Location', value: `Check ${targetChannel} for approval buttons`, inline: false },
+                { name: 'Review Location', value: `Check ${submitChannel} for approval buttons`, inline: false },
                 { name: 'Submitted By', value: `${interaction.user.displayName}`, inline: true }
               )
               .setColor(0xffa500) // Orange color for notifications
               .setTimestamp();
 
-            await announcementChannel.send({
-              content: `${moderatorRole} **Task submission requires review!**`,
-              embeds: [notificationEmbed]
-            });
+            const messageOptions = { embeds: [notificationEmbed] };
+            
+            // Add role ping if configured
+            if (activeGame.pingRoleId) {
+              messageOptions.content = `<@&${activeGame.pingRoleId}> **Task submission pending review!**`;
+            }
+
+            await announcementChannel.send(messageOptions);
           }
         } catch (error) {
           console.log('Could not send notification to announcement channel:', error);
@@ -220,7 +360,7 @@ export default {
 
       // Confirm to user
       await interaction.editReply({
-        content: `✅ **Task submission sent for review!**\n\n📋 **Details:**\n• **Team:** ${activeTeam.teamName}\n• **Position:** Tile ${activeTeam.currentPosition}\n• **Screenshot:** Attached\n• **Description:** ${description}\n\n⏳ Waiting for moderator approval to continue rolling...`,
+        content: `✅ **Task submission sent for review!**\n\n📋 **Details:**\n• **Team:** ${activeTeam.teamName}\n• **Position:** Tile ${activeTeam.currentPosition}\n• **Screenshot:** Attached\n• **Description:** ${description}\n• **Review Location:** ${submitChannel}\n\n⏳ Waiting for moderator approval to continue rolling...`,
         ephemeral: true
       });
 

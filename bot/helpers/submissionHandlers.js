@@ -154,7 +154,14 @@ export async function handleSubmissionApproval(interaction) {
                     try {
                         const channel = await interaction.client.channels.fetch(game.announcementChannelId);
                         if (channel) {
-                            await channel.send({ embeds: [gameWinEmbed] });
+                            const messageOptions = { embeds: [gameWinEmbed] };
+                            
+                            // Add role ping if configured
+                            if (game.pingRoleId) {
+                                messageOptions.content = `<@&${game.pingRoleId}>`;
+                            }
+                            
+                            await channel.send(messageOptions);
                         }
                     } catch (error) {
                         console.error(`Failed to send win announcement to main channel ${game.announcementChannelId}:`, error);
@@ -167,7 +174,14 @@ export async function handleSubmissionApproval(interaction) {
                         try {
                             const channel = await interaction.client.channels.fetch(channelId);
                             if (channel) {
-                                await channel.send({ embeds: [gameWinEmbed] });
+                                const messageOptions = { embeds: [gameWinEmbed] };
+                                
+                                // Add role ping if configured
+                                if (game.pingRoleId) {
+                                    messageOptions.content = `<@&${game.pingRoleId}>`;
+                                }
+                                
+                                await channel.send(messageOptions);
                             }
                         } catch (error) {
                             console.error(`Failed to send win announcement to channel ${channelId}:`, error);
