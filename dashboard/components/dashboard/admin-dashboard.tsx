@@ -997,7 +997,16 @@ export default function AdminDashboard({
                               <Settings className="w-4 h-4" />
                               Edit Board
                             </button>
-                            
+                            <button
+                              onClick={() => {
+                                setSelectedGame(game)
+                                setActiveTab('positions')
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                            >
+                              <Settings className="w-4 h-4" />
+                              Edit Positions
+                            </button>
                             {game.status === 'pending' && (
                               <button
                                 onClick={() => handleGameAction(game.gameId, 'start-registration')}
@@ -1020,27 +1029,7 @@ export default function AdminDashboard({
                               </button>
                             )}
                             
-                            {/* COMPREHENSIVE DEBUG INFO */}
-                            <div className="text-xs bg-red-100 border border-red-300 p-3 rounded mb-2">
-                              <strong>🔍 Complete Debug Info:</strong><br/>
-                              • Game Status: '{game.status}'<br/>
-                              • User isAdmin: {user?.isAdmin?.toString() || 'undefined'}<br/>
-                              • User isModerator: {user?.isModerator?.toString() || 'undefined'}<br/>
-                              • Has Permissions: {(user?.isAdmin || user?.isModerator)?.toString()}<br/>
-                              • Main Condition Met: {(game.status === 'active' && (user?.isAdmin || user?.isModerator))?.toString()}<br/>
-                              • isOfficiallyStarted: {game.isOfficiallyStarted?.toString() || 'undefined'}<br/>
-                              • isPaused: {game.isPaused?.toString() || 'undefined'}<br/>
-                              <strong>Expected buttons:</strong><br/>
-                              {game.status === 'active' && (user?.isAdmin || user?.isModerator) ? (
-                                <>
-                                  {!game.isOfficiallyStarted && "• Should show: Official Start button"}<br/>
-                                  {game.isOfficiallyStarted && !game.isPaused && "• Should show: Pause Game button"}<br/>
-                                  {game.isPaused && "• Should show: Resume Game button"}<br/>
-                                </>
-                              ) : (
-                                "• No admin buttons should show (main condition failed)"
-                              )}
-                            </div>
+                       
 
                             {/* Game state control buttons - only show if user has admin/moderator permissions */}
                             {game.status === 'active' && (user?.isAdmin || user?.isModerator) && (
