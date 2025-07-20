@@ -65,6 +65,31 @@ export default {
           inline: true
         });
 
+        // Add workflow guidance for active games
+        let nextStepMessage = '';
+        if (!game.channelsSetup) {
+          nextStepMessage = '**Next Step:** Use `/snlsetup` to create team channels';
+        } else if (!game.isOfficiallyStarted) {
+          nextStepMessage = '**Next Step:** Use `/snlofficialstart` to allow teams to roll dice';
+        } else if (game.isPaused) {
+          nextStepMessage = '**Game Status:** Game is paused. Use `/snlresume` to continue';
+        } else {
+          nextStepMessage = 'Game is running! Teams can use `/roll` to move.';
+        }
+
+        embed.addFields({
+          name: '📋 Workflow Status',
+          value: nextStepMessage,
+          inline: false
+        });
+
+      } else if (game.status === 'active' && teams.length === 0) {
+        embed.addFields({
+          name: '⚠️ Active Game - No Teams',
+          value: '**Next Step:** Use `/snlstart` to create teams from accepted applications',
+          inline: false
+        });
+
       } else if (game.status === 'completed') {
         // Show winner information
         const winnerTeam = teams.find(team => team.teamId === game.winner) || teams[0];
@@ -95,13 +120,25 @@ export default {
       } else if (game.status === 'registration') {
         embed.addFields({
           name: '📝 Registration Phase',
-          value: 'Game is currently accepting applications. Use `/snlstart` to begin the game with accepted participants.',
+          value: 'Game is currently accepting applications.',
+        });
+        
+        embed.addFields({
+          name: '📋 Next Steps',
+          value: '1. Accept applications with `/snlaccept`\n2. Use `/snlstart` to create teams\n3. Use `/snlsetup` to create channels\n4. Use `/snlofficialstart` to begin gameplay',
+          inline: false
         });
 
       } else if (game.status === 'pending') {
         embed.addFields({
           name: '⏳ Pending',
-          value: 'Game is created but not yet open for registration. Use `/snlstartregistration` to open applications.',
+          value: 'Game is created but not yet open for registration.',
+        });
+        
+        embed.addFields({
+          name: '📋 Next Steps',
+          value: '1. Use `/snlstartregistration` to open applications\n2. Accept applications with `/snlaccept`\n3. Use `/snlstart` to create teams\n4. Use `/snlsetup` to create channels\n5. Use `/snlofficialstart` to begin gameplay',
+          inline: false
         });
       }
 

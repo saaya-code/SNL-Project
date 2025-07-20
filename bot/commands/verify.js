@@ -1,5 +1,46 @@
 import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
 import Team from '../models/Team.js';
+import Game from '../models/Game.js';
+
+// Helper function to check if team wins when verified at tile 100
+async function checkWinCondition(team, interaction) {
+  if (team.currentPosition === 100) {
+    // Team wins! Update game status and lock all other teams
+    const game = await Game.findOne({ gameId: team.gameId });
+    
+    if (game && !game.winnerTeamId) {
+      // Set winner and complete the game
+      game.winnerTeamId = team.teamId;
+      game.completedAt = new Date();
+      game.status = 'completed';
+      await game.save();
+      
+      // Lock all other teams from rolling
+      await Team.updateMany(
+        { 
+          gameId: team.gameId,
+          teamId: { $ne: team.teamId } // All teams except the winner
+        },
+        { canRoll: false }
+      );
+      
+      return {
+        isWin: true,
+        message: `🏆 **${team.teamName}** has WON the game! 🎉\n\nCongratulations on completing Snakes & Ladders! All other teams are now locked from rolling.`
+      };
+    } else if (game?.winnerTeamId) {
+      return {
+        isWin: false,
+        message: `❌ Game has already been won by another team. No further verification needed.`
+      };
+    }
+  }
+  
+  return {
+    isWin: false,
+    message: `✅ **${team.teamName}** can now roll again! Notified the team.`
+  };
+}
 
 // Helper function to create a proper team channel
 async function createTeamChannel(guild, team) {
@@ -115,19 +156,45 @@ export default {
         // Allow the team to roll again
         team.canRoll = true;
         await team.save();
+        
+        // Check if team wins by being verified at tile 100
+        const winResult = await checkWinCondition(team, interaction);
+        
         await interaction.editReply({
-          content: `✅ **${team.teamName}** can now roll again! Notified the team.`
+          content: winResult.message
         });
+        
         // Notify the team channel if not already in it
         if (interaction.channelId !== team.channelId) {
           try {
             const teamChannel = await interaction.guild.channels.fetch(team.channelId);
             if (teamChannel) {
+              const notificationMessage = winResult.isWin 
+                ? `🏆 **VICTORY!** Your team has WON the game! 🎉\n\nCongratulations on completing Snakes & Ladders!`
+                : `🎉 Your task has been verified by an admin! You can now roll the dice again. Use "/roll" to continue.`;
+                
               await teamChannel.send({
-                content: `🎉 Your task has been verified by an admin! You can now roll the dice again. Use "/roll" to continue.`
+                content: notificationMessage
               });
             }
           } catch (err) { /* ignore */ }
+        }
+
+        // If team won, broadcast to announcement channel
+        if (winResult.isWin) {
+          try {
+            const game = await Game.findOne({ gameId: team.gameId });
+            if (game?.announcementChannelId) {
+              const announcementChannel = await interaction.guild.channels.fetch(game.announcementChannelId);
+              if (announcementChannel) {
+                await announcementChannel.send({
+                  content: `🏆 **GAME OVER!** 🏆\n\n**${team.teamName}** has won **${game.name}**!\n\n🎉 Congratulations to all participants! 🎉`
+                });
+              }
+            }
+          } catch (err) {
+            console.log('Could not broadcast win to announcement channel:', err);
+          }
         }
       } else {
         // Not in a team channel, show modal for manual selection
@@ -194,9 +261,12 @@ export default {
               selectedTeam.canRoll = true;
               await selectedTeam.save();
               
+              // Check if team wins by being verified at tile 100
+              const winResult = await checkWinCondition(selectedTeam, interaction);
+              
               await message.react('✅');
               await message.reply({
-                content: `✅ **${selectedTeam.teamName}** has been verified!\n` +
+                content: `${winResult.message}\n` +
                         `🏠 Created team channel: ${newChannel}\n` +
                         `🎲 They can now roll the dice!`
               });
@@ -205,17 +275,24 @@ export default {
               selectedTeam.canRoll = true;
               await selectedTeam.save();
               
+              // Check if team wins by being verified at tile 100
+              const winResult = await checkWinCondition(selectedTeam, interaction);
+              
               await message.react('✅');
               await message.reply({
-                content: `✅ **${selectedTeam.teamName}** has been verified and can now roll the dice!`
+                content: winResult.message
               });
               
               // Notify the team channel
               try {
                 const teamChannel = await interaction.guild.channels.fetch(selectedTeam.channelId);
                 if (teamChannel) {
+                  const notificationMessage = winResult.isWin 
+                    ? `🏆 **VICTORY!** Your team has WON the game! 🎉`
+                    : `🎉 Your task has been verified by an admin! You can now roll the dice again. Use "/roll" to continue.`;
+                    
                   await teamChannel.send({
-                    content: `🎉 Your task has been verified by an admin! You can now roll the dice again. Use "/roll" to continue.`
+                    content: notificationMessage
                   });
                 }
               } catch (err) {

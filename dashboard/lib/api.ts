@@ -89,12 +89,14 @@ export const gamesApi = {
     return response.data
   },
 
-  async updateAnnouncementChannel(gameId: string, announcementChannelId?: string, announcementWebhookUrl?: string): Promise<Game> {
-    const response = await api.put(`/api/games/${gameId}/announcement-channel`, {
-      announcementChannelId,
-      announcementWebhookUrl
+  async updateAnnouncementChannel(gameId: string, announcementChannelId?: string): Promise<Game> {
+    const response = await fetch(`/api/games/${gameId}/channel`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ announcementChannelId })
     })
-    return response.data
+    if (!response.ok) throw new Error('Failed to update announcement channel')
+    return response.json()
   },
 
   async getTile(gameId: string, tileNumber: number): Promise<any> {
@@ -109,6 +111,22 @@ export const gamesApi = {
 
   async updateTileSnakeLadder(gameId: string, tileNumber: number, snakeLadderData: any): Promise<any> {
     const response = await api.put(`/api/games/${gameId}/tiles/${tileNumber}/snake-ladder`, snakeLadderData)
+    return response.data
+  },
+
+  // Game state management endpoints
+  async officialStart(gameId: string): Promise<{ success: boolean, message: string, game: Game }> {
+    const response = await api.post(`/api/games/${gameId}/official-start`)
+    return response.data
+  },
+
+  async pauseGame(gameId: string): Promise<{ success: boolean, message: string, game: Game }> {
+    const response = await api.post(`/api/games/${gameId}/pause`)
+    return response.data
+  },
+
+  async resumeGame(gameId: string): Promise<{ success: boolean, message: string, game: Game }> {
+    const response = await api.post(`/api/games/${gameId}/resume`)
     return response.data
   }
 }
@@ -152,6 +170,11 @@ export const teamsApi = {
 
   async updateMembers(teamId: string, members: any[], leader?: any, coLeader?: any): Promise<Team> {
     const response = await api.put(`/api/teams/${teamId}/members`, { members, leader, coLeader })
+    return response.data
+  },
+
+  async updatePosition(teamId: string, newPosition: number): Promise<Team> {
+    const response = await api.put(`/api/teams/${teamId}/position`, { newPosition })
     return response.data
   },
 

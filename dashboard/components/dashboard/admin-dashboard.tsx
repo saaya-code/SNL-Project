@@ -28,7 +28,8 @@ import {
   Shield,
   Send,
   Calendar,
-  Dice6
+  Dice6,
+  LogOut
 } from 'lucide-react'
 import { gamesApi, teamsApi, applicationsApi } from '@/lib/api'
 import { toast } from 'react-hot-toast'
@@ -50,7 +51,7 @@ export default function AdminDashboard({
   user, 
   onRefresh 
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications' | 'board' | 'editor'>('games')
+  const [activeTab, setActiveTab] = useState<'games' | 'teams' | 'applications' | 'board' | 'editor' | 'positions'>('games')
   const [selectedGame, setSelectedGame] = useState<Game | null>(null)
   const [gameTeams, setGameTeams] = useState<Team[]>([])
   const [gameApplications, setGameApplications] = useState<Application[]>([])
@@ -61,8 +62,14 @@ export default function AdminDashboard({
   const [selectedMember, setSelectedMember] = useState<any>(null)
   const [draggedMember, setDraggedMember] = useState<any>(null)
   const [announcementChannelId, setAnnouncementChannelId] = useState('')
-  const [announcementWebhookUrl, setAnnouncementWebhookUrl] = useState('')
   const [applicationFilter, setApplicationFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all')
+  const [positionEditor, setPositionEditor] = useState<{
+    selectedTeam: Team | null
+    newPosition: string
+  }>({
+    selectedTeam: null,
+    newPosition: ''
+  })
   const [teamDistributionDialog, setTeamDistributionDialog] = useState<{
     isOpen: boolean
     distributedTeams: Team[]
@@ -108,7 +115,6 @@ export default function AdminDashboard({
       loadGameData(selectedGame.gameId)
       // Update announcement channel input when game is selected
       setAnnouncementChannelId(selectedGame.announcementChannelId || '')
-      setAnnouncementWebhookUrl(selectedGame.announcementWebhookUrl || '')
     }
   }, [selectedGame])
 
@@ -317,6 +323,121 @@ export default function AdminDashboard({
     }
   }
 
+  // Game state control functions
+  const handleOfficialStart = async (gameId: string) => {
+    const game = games.find(g => g.gameId === gameId)
+    if (!game) return
+
+    if (game.isOfficiallyStarted) {
+      toast.success('Game is already officially started!')
+      return
+    }
+
+    showConfirmDialog(
+      'Officially Start Game',
+      `Are you sure you want to officially start "${game.name}"? This will allow teams to start rolling dice.`,
+      async () => {
+        try {
+          setLoading(true)
+          const result = await gamesApi.officialStart(gameId)
+          toast.success(result.message)
+          onRefresh()
+          if (selectedGame?.gameId === gameId) {
+            setSelectedGame(result.game)
+          }
+        } catch (error) {
+          console.error('Failed to officially start game:', error)
+          toast.error('Failed to officially start game')
+        } finally {
+          setLoading(false)
+        }
+      },
+      'info'
+    )
+  }
+
+  const handlePauseGame = async (gameId: string) => {
+    const game = games.find(g => g.gameId === gameId)
+    if (!game) return
+
+    if (game.isPaused) {
+      toast.success('Game is already paused!')
+      return
+    }
+
+    showConfirmDialog(
+      'Pause Game',
+      `Are you sure you want to pause "${game.name}"? Teams will not be able to roll dice until the game is resumed.`,
+      async () => {
+        try {
+          setLoading(true)
+          const result = await gamesApi.pauseGame(gameId)
+          toast.success(result.message)
+          onRefresh()
+          if (selectedGame?.gameId === gameId) {
+            setSelectedGame(result.game)
+          }
+        } catch (error) {
+          console.error('Failed to pause game:', error)
+          toast.error('Failed to pause game')
+        } finally {
+          setLoading(false)
+        }
+      },
+      'warning'
+    )
+  }
+
+  const handleResumeGame = async (gameId: string) => {
+    const game = games.find(g => g.gameId === gameId)
+    if (!game) return
+
+    if (!game.isPaused) {
+      toast.success('Game is not paused!')
+      return
+    }
+
+    showConfirmDialog(
+      'Resume Game',
+      `Are you sure you want to resume "${game.name}"? Teams will be able to roll dice again.`,
+      async () => {
+        try {
+          setLoading(true)
+          const result = await gamesApi.resumeGame(gameId)
+          toast.success(result.message)
+          onRefresh()
+          if (selectedGame?.gameId === gameId) {
+            setSelectedGame(result.game)
+          }
+        } catch (error) {
+          console.error('Failed to resume game:', error)
+          toast.error('Failed to resume game')
+        } finally {
+          setLoading(false)
+        }
+      },
+      'info'
+    )
+  }
+
+  const handleDisconnect = () => {
+    showConfirmDialog(
+      'Disconnect',
+      'Are you sure you want to disconnect? You will need to sign in again.',
+      async () => {
+        try {
+          // Import signOut dynamically to avoid SSR issues
+          const { signOut } = await import('next-auth/react')
+          await signOut({ callbackUrl: '/' })
+        } catch (error) {
+          console.error('Failed to sign out:', error)
+          toast.error('Failed to disconnect')
+        }
+      },
+      'warning'
+    )
+  }
+
   const handleTeamVerification = async (teamId: string, canRoll: boolean) => {
     // Look for team in both gameTeams and global teams
     const team = gameTeams.find(t => t.teamId === teamId) || 
@@ -356,6 +477,37 @@ export default function AdminDashboard({
       },
       canRoll ? 'info' : 'warning'
     )
+  }
+
+  const handlePositionUpdate = async (teamId: string, newPosition: number) => {
+    try {
+      setLoading(true)
+      const result = await teamsApi.updatePosition(teamId, newPosition)
+      toast.success(`Team position updated to ${newPosition}!`)
+      
+      // Reset the position editor
+      setPositionEditor({
+        selectedTeam: null,
+        newPosition: ''
+      })
+      
+      // Refresh game data
+      if (selectedGame) {
+        loadGameData(selectedGame.gameId)
+      }
+      
+      // Force board refresh if we're viewing the board
+      if (activeTab === 'board') {
+        forceBoardRefresh()
+      }
+      
+      onRefresh()
+    } catch (error) {
+      console.error('Position update failed:', error)
+      toast.error('Failed to update team position')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleApplicationAction = async (applicationId: string, action: 'accept' | 'reject', notes?: string, newStatus?: 'pending' | 'accepted' | 'rejected') => {
@@ -531,8 +683,7 @@ export default function AdminDashboard({
       setLoading(true)
       await gamesApi.updateAnnouncementChannel(
         selectedGame.gameId, 
-        announcementChannelId.trim() || undefined, 
-        announcementWebhookUrl.trim() || undefined
+        announcementChannelId.trim() || undefined
       )
       toast.success('Announcement settings updated!')
       onRefresh()
@@ -611,6 +762,7 @@ export default function AdminDashboard({
     'games': { icon: Gamepad2, label: 'Game Management', count: games.length },
     'teams': { icon: Users, label: 'Team Management', count: teams.length },
     'applications': { icon: Send, label: 'Applications', count: applications.filter(a => a.status === 'pending').length },
+    'positions': { icon: MapPin, label: 'Position Editor', count: selectedGame ? gameTeams.length : 0 },
     'board': { icon: Eye, label: 'Board Viewer', count: selectedGame ? 1 : 0 },
     'editor': { icon: Settings, label: 'Board Editor', count: selectedGame ? 1 : 0 }
   }
@@ -620,15 +772,24 @@ export default function AdminDashboard({
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold text-white">
-              Admin Dashboard
-            </h1>
-            {process.env.NEXT_PUBLIC_DEV_MODE === 'true' && (
-              <span className="bg-red-600 text-red-100 px-2 py-1 rounded-md text-sm font-medium">
-                🛡️ DEV: Admin View
-              </span>
-            )}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-white">
+                Admin Dashboard
+              </h1>
+              {process.env.NEXT_PUBLIC_DEV_MODE === 'true' && (
+                <span className="bg-red-600 text-red-100 px-2 py-1 rounded-md text-sm font-medium">
+                  🛡️ DEV: Admin View
+                </span>
+              )}
+            </div>
+            <button
+              onClick={handleDisconnect}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              Disconnect
+            </button>
           </div>
           <p className="text-gray-300">
             Welcome back, {user.name}! Manage games, teams, and monitor all activities.
@@ -859,6 +1020,66 @@ export default function AdminDashboard({
                               </button>
                             )}
                             
+                            {/* COMPREHENSIVE DEBUG INFO */}
+                            <div className="text-xs bg-red-100 border border-red-300 p-3 rounded mb-2">
+                              <strong>🔍 Complete Debug Info:</strong><br/>
+                              • Game Status: '{game.status}'<br/>
+                              • User isAdmin: {user?.isAdmin?.toString() || 'undefined'}<br/>
+                              • User isModerator: {user?.isModerator?.toString() || 'undefined'}<br/>
+                              • Has Permissions: {(user?.isAdmin || user?.isModerator)?.toString()}<br/>
+                              • Main Condition Met: {(game.status === 'active' && (user?.isAdmin || user?.isModerator))?.toString()}<br/>
+                              • isOfficiallyStarted: {game.isOfficiallyStarted?.toString() || 'undefined'}<br/>
+                              • isPaused: {game.isPaused?.toString() || 'undefined'}<br/>
+                              <strong>Expected buttons:</strong><br/>
+                              {game.status === 'active' && (user?.isAdmin || user?.isModerator) ? (
+                                <>
+                                  {!game.isOfficiallyStarted && "• Should show: Official Start button"}<br/>
+                                  {game.isOfficiallyStarted && !game.isPaused && "• Should show: Pause Game button"}<br/>
+                                  {game.isPaused && "• Should show: Resume Game button"}<br/>
+                                </>
+                              ) : (
+                                "• No admin buttons should show (main condition failed)"
+                              )}
+                            </div>
+
+                            {/* Game state control buttons - only show if user has admin/moderator permissions */}
+                            {game.status === 'active' && (user?.isAdmin || user?.isModerator) && (
+                              <>
+                                {!game.isOfficiallyStarted && (
+                                  <button
+                                    onClick={() => handleOfficialStart(game.gameId)}
+                                    disabled={loading}
+                                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                  >
+                                    <Play className="w-4 h-4" />
+                                    Official Start
+                                  </button>
+                                )}
+                                
+                                {game.isOfficiallyStarted && !game.isPaused && (
+                                  <button
+                                    onClick={() => handlePauseGame(game.gameId)}
+                                    disabled={loading}
+                                    className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                  >
+                                    <Pause className="w-4 h-4" />
+                                    Pause Game
+                                  </button>
+                                )}
+                                
+                                {game.isPaused && (
+                                  <button
+                                    onClick={() => handleResumeGame(game.gameId)}
+                                    disabled={loading}
+                                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm transition-colors flex items-center gap-2"
+                                  >
+                                    <Play className="w-4 h-4" />
+                                    Resume Game
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            
                             {(game.status === 'active' || game.status === 'completed') && (
                               <button
                                 onClick={() => handleGameAction(game.gameId, 'reset')}
@@ -922,38 +1143,22 @@ export default function AdminDashboard({
                       />
                     </div>
                     
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Discord Webhook URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://discord.com/api/webhooks/..."
-                        value={announcementWebhookUrl}
-                        onChange={(e) => setAnnouncementWebhookUrl(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-400"
-                      />
-                    </div>
-                    
                     <button
                       onClick={handleAnnouncementChannelUpdate}
                       disabled={loading}
                       className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded font-medium transition-colors"
                     >
-                      {loading ? 'Updating...' : 'Update Announcement Settings'}
+                      {loading ? 'Updating...' : 'Update Announcement Channel'}
                     </button>
                   </div>
                   
                   <div className="mt-3 space-y-1">
                     <p className="text-sm text-gray-400">
-                      Set the Discord channel and webhook for team roll announcements.
+                      Set the Discord channel for game announcements.
                     </p>
                     {selectedGame.announcementChannelId && (
                       <p className="text-sm text-green-400">
                         ✅ Channel: {selectedGame.announcementChannelId}
-                      </p>
-                    )}
-                    {selectedGame.announcementWebhookUrl && (
-                      <p className="text-sm text-green-400">
-                        ✅ Webhook: Configured
                       </p>
                     )}
                   </div>
@@ -1531,6 +1736,204 @@ export default function AdminDashboard({
                       Board updates automatically every 10 seconds when teams move
                       {boardLoading && <span className="text-blue-400">(Updating...)</span>}
                     </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Position Editor Tab */}
+          {activeTab === 'positions' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">Team Position Editor</h2>
+                {selectedGame && (
+                  <div className="text-sm text-gray-300">
+                    Game: {selectedGame.name}
+                  </div>
+                )}
+              </div>
+
+              {!selectedGame ? (
+                <div className="text-center py-12">
+                  <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No game selected</p>
+                  <p className="text-sm text-gray-400">Go to "Game Management" and select a game to edit team positions</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Position Editor Controls */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <Settings className="w-5 h-5" />
+                      Position Editor
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Team Selection */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Select Team
+                        </label>
+                        <select
+                          value={positionEditor.selectedTeam?.teamId || ''}
+                          onChange={(e) => {
+                            const team = gameTeams.find(t => t.teamId === e.target.value)
+                            setPositionEditor(prev => ({
+                              ...prev,
+                              selectedTeam: team || null,
+                              newPosition: team ? team.currentPosition.toString() : ''
+                            }))
+                          }}
+                          className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Choose a team...</option>
+                          {gameTeams.sort((a, b) => b.currentPosition - a.currentPosition).map((team) => (
+                            <option key={team.teamId} value={team.teamId}>
+                              {team.teamName} (Position: {team.currentPosition})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* New Position Input */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          New Position (0-100)
+                        </label>
+                        <div className="flex gap-3">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={positionEditor.newPosition}
+                            onChange={(e) => setPositionEditor(prev => ({
+                              ...prev,
+                              newPosition: e.target.value
+                            }))}
+                            placeholder="Enter position..."
+                            className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            onClick={() => {
+                              if (positionEditor.selectedTeam && positionEditor.newPosition) {
+                                const newPos = parseInt(positionEditor.newPosition)
+                                if (newPos >= 0 && newPos <= 100) {
+                                  showConfirmDialog(
+                                    'Update Team Position',
+                                    `Are you sure you want to move ${positionEditor.selectedTeam.teamName} from position ${positionEditor.selectedTeam.currentPosition} to position ${newPos}?`,
+                                    () => handlePositionUpdate(positionEditor.selectedTeam!.teamId, newPos),
+                                    'warning'
+                                  )
+                                } else {
+                                  toast.error('Position must be between 0 and 100')
+                                }
+                              } else {
+                                toast.error('Please select a team and enter a valid position')
+                              }
+                            }}
+                            disabled={!positionEditor.selectedTeam || !positionEditor.newPosition || loading}
+                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                          >
+                            <MapPin className="w-4 h-4" />
+                            Update
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {positionEditor.selectedTeam && (
+                      <div className="mt-4 p-4 bg-blue-600/20 border border-blue-600/50 rounded-lg">
+                        <h4 className="font-medium text-blue-300 mb-2">Selected Team Info</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-300">Team:</span>
+                            <div className="font-medium text-white">{positionEditor.selectedTeam.teamName}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-300">Current Position:</span>
+                            <div className="font-medium text-white">{positionEditor.selectedTeam.currentPosition}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-300">Leader:</span>
+                            <div className="font-medium text-white">{positionEditor.selectedTeam.leader.displayName}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-300">Can Roll:</span>
+                            <div className={`font-medium ${positionEditor.selectedTeam.canRoll ? 'text-green-400' : 'text-red-400'}`}>
+                              {positionEditor.selectedTeam.canRoll ? 'Yes' : 'No'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Teams List */}
+                  <div className="bg-gray-700/50 rounded-lg p-6">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <Trophy className="w-5 h-5" />
+                      Current Team Positions
+                    </h3>
+                    
+                    {loading ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                        <p className="text-gray-300 mt-2">Loading teams...</p>
+                      </div>
+                    ) : gameTeams.length === 0 ? (
+                      <p className="text-gray-300 text-center py-8">No teams found for this game</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {gameTeams
+                          .sort((a, b) => b.currentPosition - a.currentPosition)
+                          .map((team, index) => (
+                            <div
+                              key={team.teamId}
+                              className={`flex items-center justify-between p-4 rounded-lg transition-colors cursor-pointer hover:bg-gray-600/50 ${
+                                positionEditor.selectedTeam?.teamId === team.teamId 
+                                  ? 'bg-blue-600/30 border border-blue-600/50' 
+                                  : 'bg-gray-800/50'
+                              }`}
+                              onClick={() => setPositionEditor({
+                                selectedTeam: team,
+                                newPosition: team.currentPosition.toString()
+                              })}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                                  index === 0 ? 'bg-yellow-500 text-black' :
+                                  index === 1 ? 'bg-gray-400 text-black' :
+                                  index === 2 ? 'bg-orange-600 text-white' :
+                                  'bg-gray-600 text-white'
+                                }`}>
+                                  {index + 1}
+                                </div>
+                                <div>
+                                  <div className="font-medium text-white flex items-center gap-2">
+                                    {team.teamName}
+                                    {positionEditor.selectedTeam?.teamId === team.teamId && (
+                                      <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded">SELECTED</span>
+                                    )}
+                                  </div>
+                                  <div className="text-sm text-gray-300">
+                                    Leader: {team.leader.displayName}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="text-right">
+                                <div className="text-lg font-bold text-white">
+                                  Position {team.currentPosition}
+                                </div>
+                                <div className={`text-sm ${team.canRoll ? 'text-green-400' : 'text-yellow-400'}`}>
+                                  {team.canRoll ? '✓ Can Roll' : '⏳ Waiting'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

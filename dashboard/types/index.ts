@@ -15,28 +15,26 @@ export interface Session {
 }
 
 export interface Game {
-  id?: string
+  _id: string
   gameId: string
   name: string
   status: 'pending' | 'registration' | 'active' | 'completed'
-  channelId?: string
+  channelId: string
   announcementChannelId?: string
-  announcementWebhookUrl?: string
-  tileTasks: Record<string, TaskData>
-  snakes: Record<string, number>
-  ladders: Record<string, number>
+  tileTasks: TileTasks
+  snakes: { [key: string]: number }
+  ladders: { [key: string]: number }
   participants: string[]
   createdBy: string
-  applicationDeadline?: string
+  applicationDeadline?: string | Date
   snakeCount: number
   ladderCount: number
   maxTeamSize: number
-  createdAt: string
-  updatedAt: string
-  // Additional fields returned when starting a game
-  teamsCreated?: Team[]
-  acceptedApplications?: number
-  devMode?: boolean
+  isOfficiallyStarted: boolean
+  isPaused: boolean
+  channelsSetup: boolean
+  createdAt: string | Date
+  updatedAt: string | Date
 }
 
 export interface TaskData {
@@ -46,6 +44,8 @@ export interface TaskData {
   uploadedImageUrl?: string
   uploadedImageName?: string
 }
+
+export type TileTasks = Record<string, TaskData>
 
 export interface Team {
   id?: string

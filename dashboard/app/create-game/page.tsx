@@ -37,7 +37,6 @@ interface GameFormData {
   snakeCount: number
   ladderCount: number
   announcementChannelId: string
-  announcementWebhookUrl: string
 }
 
 const GRID_SIZE = 10
@@ -61,8 +60,7 @@ export default function CreateGamePage() {
     maxTeamSize: 3,
     snakeCount: 0,
     ladderCount: 0,
-    announcementChannelId: '',
-    announcementWebhookUrl: ''
+    announcementChannelId: ''
   })
   const [tiles, setTiles] = useState<TileData[]>(initializeTiles())
   const [selectedTile, setSelectedTile] = useState<number | null>(null)
@@ -375,7 +373,6 @@ export default function CreateGamePage() {
         applicationDeadline: gameForm.deadline,
         maxTeamSize: gameForm.maxTeamSize,
         announcementChannelId: gameForm.announcementChannelId,
-        announcementWebhookUrl: gameForm.announcementWebhookUrl,
         tileTasks,
         snakes,
         ladders,
@@ -466,22 +463,6 @@ export default function CreateGamePage() {
                 />
                 <p className="text-sm text-gray-400 mt-1">
                   Discord channel where team roll announcements will be sent. Leave empty to disable announcements.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Discord Webhook URL (Required for announcements)
-                </label>
-                <input
-                  type="url"
-                  value={gameForm.announcementWebhookUrl}
-                  onChange={(e) => setGameForm(prev => ({ ...prev, announcementWebhookUrl: e.target.value }))}
-                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="https://discord.com/api/webhooks/..."
-                />
-                <p className="text-sm text-gray-400 mt-1">
-                  Discord webhook URL for sending roll announcements. Required if you want announcements from dashboard rolls.
                 </p>
               </div>
 

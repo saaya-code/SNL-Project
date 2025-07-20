@@ -157,9 +157,10 @@ export default function PlayerDashboard({
       }
       
       onRefresh()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Roll dice failed:', error)
-      toast.error('Failed to roll dice. Please try again.')
+      const errorMessage = error.response?.data?.error || 'Failed to roll dice. Please try again.'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

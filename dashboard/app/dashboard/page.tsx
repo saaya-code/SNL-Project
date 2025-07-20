@@ -11,7 +11,7 @@ import LoadingSpinner from '@/components/ui/loading-spinner'
 import DevModeSwitcher from '@/components/ui/dev-mode-switcher'
 
 export default function DashboardPage() {
-  const { data: session, status } = useSession()
+  const { data: session, status, update } = useSession()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [games, setGames] = useState<Game[]>([])
@@ -19,6 +19,16 @@ export default function DashboardPage() {
   const [applications, setApplications] = useState<Application[]>([])
   const [error, setError] = useState<string | null>(null)
   const [devModeView, setDevModeView] = useState<'admin' | 'player' | null>(null)
+  const [sessionUpdated, setSessionUpdated] = useState(false)
+
+  // Force session update once to ensure we have latest Discord data
+  useEffect(() => {
+    if (session && !sessionUpdated) {
+      update().then(() => {
+        setSessionUpdated(true)
+      })
+    }
+  }, [session, sessionUpdated, update])
 
   // Load dev mode view preference from localStorage
   useEffect(() => {
@@ -51,6 +61,11 @@ export default function DashboardPage() {
     try {
       setLoading(true)
       setError(null)
+
+      // Debug session user data
+      console.log('Dashboard - Full session user:', session?.user)
+      console.log('Dashboard - User isAdmin:', (session?.user as any)?.isAdmin)
+      console.log('Dashboard - User isModerator:', (session?.user as any)?.isModerator)
 
       const [gamesData, teamsData, applicationsData] = await Promise.all([
         gamesApi.getAll(),

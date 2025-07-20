@@ -24,8 +24,36 @@ export default {
         },
         {
           name: '/snlstart',
-          description: 'Start the current game with accepted participants',
+          description: 'Start the current game with accepted participants (creates teams)',
           usage: '/snlstart',
+          permissions: 'Moderator only',
+          category: 'Game Management'
+        },
+        {
+          name: '/snlsetup',
+          description: 'Setup channels for teams and announcements',
+          usage: '/snlsetup',
+          permissions: 'Moderator only',
+          category: 'Game Management'
+        },
+        {
+          name: '/snlofficialstart',
+          description: 'Officially start the game to allow teams to roll dice',
+          usage: '/snlofficialstart',
+          permissions: 'Moderator only',
+          category: 'Game Management'
+        },
+        {
+          name: '/snlpause',
+          description: 'Pause the game to prevent teams from rolling',
+          usage: '/snlpause',
+          permissions: 'Moderator only',
+          category: 'Game Management'
+        },
+        {
+          name: '/snlresume',
+          description: 'Resume a paused game to allow teams to roll again',
+          usage: '/snlresume',
           permissions: 'Moderator only',
           category: 'Game Management'
         },
@@ -79,6 +107,13 @@ export default {
           category: 'Gameplay'
         },
         {
+          name: '/snlsubmit',
+          description: 'Submit task completion proof for approval (wins if approved on tile 100!)',
+          usage: '/snlsubmit <screenshot> [description]',
+          permissions: 'Team leaders only',
+          category: 'Gameplay'
+        },
+        {
           name: '/snlnextround',
           description: 'Allow all teams to roll again',
           usage: '/snlnextround',
@@ -126,7 +161,7 @@ export default {
       embed.addFields(
         {
           name: '🎮 Game Management Commands',
-          value: '`/snlcreate` - Create a new game\n`/snlstartregistration` - Start registration\n`/snlstart` - Start the game\n`/snlnextround` - Allow all teams to roll\n`/snlreset` - Reset game state\n`/snlcleanup` - Clean up completed games',
+          value: '`/snlcreate` - Create a new game\n`/snlstartregistration` - Start registration\n`/snlstart` - Start the game (creates teams)\n`/snlsetup` - Setup team channels\n`/snlofficialstart` - Allow teams to roll\n`/snlpause` - Pause rolling\n`/snlresume` - Resume rolling\n`/snlnextround` - Allow all teams to roll\n`/snlreset` - Reset game state\n`/snlcleanup` - Clean up completed games',
           inline: false
         },
         {
@@ -141,7 +176,7 @@ export default {
         },
         {
           name: '🎯 Gameplay Commands',
-          value: '`/roll` - Roll dice (team leaders)\n`/verify` - Verify task completion',
+          value: '`/roll` - Roll dice (team leaders)\n`/snlsubmit` - Submit task proof\n`/verify` - Verify task completion',
           inline: false
         },
         {
@@ -164,7 +199,12 @@ export default {
         },
         {
           name: '📚 Quick Start Guide',
-          value: '1. `/snlcreate` - Create game\n2. `/snlstartregistration` - Open registration\n3. Accept applications with `/snlaccept`\n4. `/snlstart` - Begin the game!',
+          value: '1. `/snlcreate` - Create game\n2. `/snlstartregistration` - Open registration\n3. Accept applications with `/snlaccept`\n4. `/snlstart` - Create teams\n5. `/snlsetup` - Setup team channels\n6. `/snlofficialstart` - Allow teams to roll dice!',
+          inline: false
+        },
+        {
+          name: '🏆 How to Win',
+          value: '**Goal**: Be the first team to reach tile 100 and get verified!\n\n**Win Conditions**:\n• Reach tile 100 through rolling dice\n• Complete the task on tile 100\n• Get moderator approval via `/verify` OR task submission\n• First team to be verified on tile 100 wins!\n\n**After Win**: All other teams are locked from rolling.',
           inline: false
         }
       );

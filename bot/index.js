@@ -92,6 +92,11 @@ import {
   handleResetConfirmation
 } from './helpers/resetHandlers.js';
 
+// Import submission handlers
+import {
+  handleSubmissionApproval
+} from './helpers/submissionHandlers.js';
+
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isCommand()) {
@@ -140,6 +145,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleRequestInfo(interaction);
             } else if (customId.startsWith('confirm_reset_') || customId === 'cancel_reset') {
                 await handleResetConfirmation(interaction);
+            } else if (customId.startsWith('approve_submission_') || customId.startsWith('reject_submission_')) {
+                await handleSubmissionApproval(interaction);
             }
         } else if (interaction.isStringSelectMenu()) {
             const customId = interaction.customId;

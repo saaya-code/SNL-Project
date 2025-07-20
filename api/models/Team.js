@@ -20,7 +20,7 @@ const TeamSchema = new mongoose.Schema({
     displayName: { type: String, required: false }
   },
   channelId: { type: String, required: true },
-  currentPosition: { type: Number, default: 1 },
+  currentPosition: { type: Number, default: 0 },
   canRoll: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 }, {

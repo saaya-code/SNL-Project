@@ -141,10 +141,22 @@ export default {
         });
       }
 
+      // Check if game has already been won
+      if (game.winnerTeamId) {
+        const winnerTeam = await Team.findOne({ teamId: game.winnerTeamId });
+        return await interaction.editReply({ 
+          content: `🏆 Game "${game.name}" has already been won by **${winnerTeam?.teamName || 'Unknown Team'}**! No more rolling allowed.`
+        });
+      }
+
       // Roll the dice (1-6)
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       const oldPosition = team.currentPosition;
-      let newPosition = Math.min(oldPosition + diceRoll, 100);
+      // If roll would go over 100, land on tile 100 instead
+      let newPosition = oldPosition + diceRoll;
+      if (newPosition > 100) {
+        newPosition = 100;
+      }
       
       // Check for snakes and ladders
       let snakeOrLadderMessage = '';
@@ -210,11 +222,19 @@ export default {
       if (currentTask) {
         let taskField = `**Task:** ${currentTask.description}`;
         
-        // Add image if available
+        // Add image reference if available (but don't embed base64 images)
         if (currentTask.imageUrl || currentTask.uploadedImageUrl) {
           const imageUrl = currentTask.uploadedImageUrl || currentTask.imageUrl;
-          embed.setImage(imageUrl);
-          taskField += '\n*See image above for visual reference*';
+          
+          // Only set image for HTTP/HTTPS URLs, not base64 data URLs
+          if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+            embed.setImage(imageUrl);
+            taskField += '\n*See image above for visual reference*';
+          } else if (imageUrl.startsWith('data:')) {
+            taskField += '\n*🖼️ This tile has a custom image (visible on dashboard)*';
+          } else {
+            taskField += '\n*🖼️ This tile has an image*';
+          }
         }
         
         embed.addFields({ name: `📝 Tile ${newPosition} Task`, value: taskField });
@@ -222,19 +242,13 @@ export default {
         embed.addFields({ name: `📝 Tile ${newPosition}`, value: 'No special task on this tile. Safe spot!' });
       }
 
-      // Check for win condition
+      // Check if team reached tile 100 (but needs verification to win)
       if (newPosition === 100) {
         embed.addFields({ 
-          name: '🏆 VICTORY!', 
-          value: `**${team.teamName}** has reached tile 100 and won the game! 🎉` 
+          name: '🎯 TILE 100 REACHED!', 
+          value: `**${team.teamName}** has reached tile 100! You must now get verified by a moderator to win the game. 🎉\n\n**To win:** Wait for a moderator to use \`/verify\` in your team channel OR complete the task and use \`/snlsubmit\` for approval!` 
         });
         embed.setColor('#FFD700');
-        
-        // Update game status to completed
-        game.status = 'completed';
-        game.completedAt = new Date();
-        game.winner = team.teamId;
-        await game.save();
       } else {
         embed.addFields({ 
           name: '🔒 Task Pending', 
@@ -271,12 +285,9 @@ export default {
 
       await interaction.editReply(replyOptions);
 
-      // Send board image to game's original channel and all team channels
+      // Send announcement to SNL announcements channel and team channel only
       try {
-        // Get all teams for this game
-        const allTeams = await Team.find({ gameId: game.gameId });
-        
-        // Send to SNL announcements channel first
+        // Send to SNL announcements channel
         if (game.announcementChannelId) {
           try {
             const announcementsChannel = await interaction.guild.channels.fetch(game.announcementChannelId);
@@ -291,11 +302,11 @@ export default {
                 announcementEmbed.addFields({ name: snakeOrLadderEmoji + ' Special Move!', value: snakeOrLadderMessage });
               }
 
-              // Add win condition
-              if (newPosition >= 100) {
+              // Add tile 100 reached notification
+              if (newPosition === 100) {
                 announcementEmbed.addFields({ 
-                  name: '🏆 VICTORY!', 
-                  value: `**${team.teamName}** has reached tile 100 and won the game! 🎉` 
+                  name: '🎯 TILE 100 REACHED!', 
+                  value: `**${team.teamName}** has reached the final tile! They must now get verified by a moderator to win the game! 🎉` 
                 });
               }
 
@@ -323,82 +334,21 @@ export default {
           }
         }
         
-        // Send to game's original channel
-        if (game.channelId && game.channelId !== interaction.channelId) {
+        // Send to the rolling team's channel (if different from where command was used)
+        if (interaction.channelId !== team.channelId && 
+            team.channelId !== 'dashboard-team' && 
+            team.channelId) {
           try {
-            const gameChannel = await interaction.guild.channels.fetch(game.channelId);
-            if (gameChannel) {
-              const gameChannelEmbed = new EmbedBuilder()
-                .setTitle(`🎲 ${team.teamName} Rolled!`)
-                .setDescription(`**${interaction.user.displayName}** rolled **${diceRoll}** and moved from tile **${oldPosition}** to tile **${newPosition}**`)
-                .setColor(embed.data.color)
-                .setFooter({ text: `Game: ${game.name}` })
-                .setTimestamp();
-              
-              if (boardAttachment) {
-                gameChannelEmbed.setImage('attachment://gameboard.png');
-              }
-              
-              const gameChannelOptions = { embeds: [gameChannelEmbed] };
-              if (boardAttachment) {
-                gameChannelOptions.files = [boardAttachment];
-              }
-              
-              await gameChannel.send(gameChannelOptions);
+            const teamChannel = await interaction.guild.channels.fetch(team.channelId);
+            if (teamChannel) {
+              await teamChannel.send(replyOptions);
             }
           } catch (error) {
-            console.log('Could not post to game channel:', error);
-          }
-        }
-        
-        // Send to all other team channels (not the current one)
-        for (const otherTeam of allTeams) {
-          if (otherTeam.channelId !== interaction.channelId && 
-              otherTeam.teamId !== team.teamId && 
-              otherTeam.channelId !== 'dashboard-team' && 
-              otherTeam.channelId) {
-            try {
-              const otherTeamChannel = await interaction.guild.channels.fetch(otherTeam.channelId);
-              if (otherTeamChannel) {
-                const teamChannelEmbed = new EmbedBuilder()
-                  .setTitle(`🎲 ${team.teamName} Rolled!`)
-                  .setDescription(`**${interaction.user.displayName}** rolled **${diceRoll}** and moved from tile **${oldPosition}** to tile **${newPosition}**`)
-                  .setColor(embed.data.color)
-                  .setFooter({ text: `Game: ${game.name}` })
-                  .setTimestamp();
-                
-                if (boardAttachment) {
-                  teamChannelEmbed.setImage('attachment://gameboard.png');
-                }
-                
-                const teamChannelOptions = { embeds: [teamChannelEmbed] };
-                if (boardAttachment) {
-                  teamChannelOptions.files = [boardAttachment];
-                }
-                
-                await otherTeamChannel.send(teamChannelOptions);
-              }
-            } catch (error) {
-              console.log(`Could not post to team ${otherTeam.teamName} channel:`, error);
-            }
+            console.log('Could not post to team channel:', error);
           }
         }
       } catch (error) {
-        console.log('Error broadcasting to other channels:', error);
-      }
-
-      // If this is NOT a team channel, also post in the current team's channel
-      if (interaction.channelId !== team.channelId && 
-          team.channelId !== 'dashboard-team' && 
-          team.channelId) {
-        try {
-          const teamChannel = await interaction.guild.channels.fetch(team.channelId);
-          if (teamChannel) {
-            await teamChannel.send(replyOptions);
-          }
-        } catch (error) {
-          console.log('Could not post to team channel:', error);
-        }
+        console.log('Error broadcasting roll result:', error);
       }
 
     } catch (error) {

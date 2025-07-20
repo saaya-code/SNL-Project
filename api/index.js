@@ -278,79 +278,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://snl:snl2025@localhost:27017/snl?authSource=admin';
 
-// Discord webhook functionality for announcements
-async function sendRollAnnouncement(game, team, diceRoll, oldPosition, newPosition, snakeOrLadder) {
-  const webhookUrl = game.announcementWebhookUrl;
-  
-  if (!webhookUrl) {
-    console.log('No Discord webhook URL configured for this game, skipping announcement');
-    return;
-  }
-
-  const embed = {
-    title: "🎲 Team Roll Update",
-    color: newPosition === 100 ? 0xffd700 : (snakeOrLadder && snakeOrLadder.includes('Snake')) ? 0xff4444 : (snakeOrLadder && snakeOrLadder.includes('Ladder')) ? 0x44ff44 : 0x0099ff,
-    description: `**${team.teamName}** rolled **${diceRoll}** and moved from tile **${oldPosition}** to tile **${newPosition}**`,
-    fields: [
-      {
-        name: "🎲 Dice Roll",
-        value: diceRoll.toString(),
-        inline: true
-      },
-      {
-        name: "📍 Position",
-        value: `${oldPosition} → ${newPosition}`,
-        inline: true
-      },
-      {
-        name: "🎮 Game",
-        value: game.name,
-        inline: true
-      }
-    ],
-    timestamp: new Date().toISOString()
-  };
-
-  if (snakeOrLadder) {
-    embed.fields.push({
-      name: snakeOrLadder.includes('Snake') ? "🐍 Snake Alert!" : "🪜 Ladder Boost!",
-      value: snakeOrLadder,
-      inline: false
-    });
-  }
-
-  if (newPosition >= 100) {
-    embed.title = "🏆 WINNER!";
-    embed.color = 0xffd700; // Gold color
-    embed.description = `**${team.teamName}** has reached tile 100 and won the game! 🎉`;
-    embed.fields.push({
-      name: "🏆 VICTORY!",
-      value: `**${team.teamName}** has won the game!`,
-      inline: false
-    });
-  }
-
-  try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        embeds: [embed]
-      })
-    });
-
-    if (!response.ok) {
-      console.error('Failed to send Discord webhook:', response.statusText);
-    } else {
-      console.log(`Sent roll announcement for ${team.teamName} via Discord webhook`);
-    }
-  } catch (error) {
-    console.error('Error sending Discord webhook:', error);
-  }
-}
-
 // Middleware with more reasonable payload limits
 app.use(express.json({ limit: '10mb' })); // Reduced from 300mb to 10mb
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -983,8 +910,9 @@ app.post('/api/games/:gameId/start-with-teams', async (req, res) => {
       savedTeams.push(team);
     }
 
-    // Update game status
+    // Update game status to active but not officially started yet
     game.status = 'active';
+    game.isOfficiallyStarted = false; // Teams cannot roll until officially started
     await game.save();
     
     res.json({
@@ -1040,8 +968,9 @@ app.post('/api/games/:gameId/start', async (req, res) => {
       DEV_MODE
     );
 
-    // Update game status
+    // Update game status to active but not officially started yet
     game.status = 'active';
+    game.isOfficiallyStarted = false; // Teams cannot roll until officially started
     await game.save();
     
     res.json({
@@ -1292,13 +1221,33 @@ app.post('/api/teams/:teamId/roll', async (req, res) => {
       return res.status(400).json({ error: 'Team cannot roll dice at this time' });
     }
     
+    // Get game details for state validation
+    const game = await Game.findOne({ gameId: team.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // Check if game is active
+    if (game.status !== 'active') {
+      return res.status(400).json({ error: `Game is not currently active. Status: ${game.status}` });
+    }
+
+    // Check if game is officially started
+    if (!game.isOfficiallyStarted) {
+      return res.status(400).json({ error: 'Game has not been officially started yet. Teams cannot roll until an admin officially starts the game.' });
+    }
+
+    // Check if game is paused
+    if (game.isPaused) {
+      return res.status(400).json({ error: 'Game is currently paused. Please wait for an admin to resume the game before rolling.' });
+    }
+    
     // Roll the dice
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     const oldPosition = team.currentPosition;
     let newPosition = Math.min(oldPosition + diceRoll, 100);
     
-    // Get game details for snakes and ladders
-    const game = await Game.findOne({ gameId: team.gameId });
+    // Check for snakes and ladders
     let snakeOrLadder = null;
     
     if (game) {
@@ -1322,24 +1271,26 @@ app.post('/api/teams/:teamId/roll', async (req, res) => {
     team.canRoll = false; // Prevent rolling again until next round
     await team.save();
 
+    // Check for win condition
+    let gameWon = false;
+    if (newPosition >= 100) {
+      game.status = 'completed';
+      game.completedAt = new Date();
+      game.winner = team.teamId;
+      await game.save();
+      gameWon = true;
+    }
+
     // IMPORTANT: Invalidate board cache for this game so position changes appear immediately
     const invalidatedCount = boardQueue.invalidateGameCache(team.gameId);
     console.log(`🔄 Cache invalidated for game ${team.gameId} after team roll - ${invalidatedCount} entries removed`);
-
-    // Send announcement if webhook is configured
-    if (game && game.announcementWebhookUrl) {
-      try {
-        await sendRollAnnouncement(game, team, diceRoll, oldPosition, newPosition, snakeOrLadder);
-      } catch (error) {
-        console.error('Failed to send roll announcement:', error);
-      }
-    }
     
     res.json({
       diceRoll,
       oldPosition,
       newPosition,
-      snakeOrLadder
+      snakeOrLadder,
+      gameWon
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1439,6 +1390,39 @@ app.put('/api/teams/exchange', async (req, res) => {
     await Promise.all([sourceTeam.save(), targetTeam.save()]);
     
     res.json({ sourceTeam, targetTeam });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT endpoint to update team position
+app.put('/api/teams/:teamId/position', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { newPosition } = req.body;
+
+    // Validate position
+    if (!newPosition || newPosition < 0 || newPosition > 100) {
+      return res.status(400).json({ error: 'Position must be between 0 and 100' });
+    }
+
+    // Find the team
+    const team = await Team.findOne({ teamId });
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Update the position
+    const oldPosition = team.currentPosition;
+    team.currentPosition = parseInt(newPosition);
+    await team.save();
+
+    console.log(`Admin updated team ${team.teamName} position from ${oldPosition} to ${newPosition}`);
+    
+    res.json({ 
+      team, 
+      message: `Team position updated from ${oldPosition} to ${newPosition}` 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1653,10 +1637,10 @@ app.put('/api/games/:gameId/tiles/:tileNumber/snake-ladder', async (req, res) =>
 });
 
 // PUT endpoint to update announcement channel for a game
-app.put('/api/games/:gameId/announcement-channel', async (req, res) => {
+app.put('/api/games/:gameId/channel', async (req, res) => {
   try {
     const { gameId } = req.params;
-    const { announcementChannelId, announcementWebhookUrl } = req.body;
+    const { announcementChannelId } = req.body;
 
     const game = await Game.findOne({ gameId });
     if (!game) {
@@ -1665,9 +1649,6 @@ app.put('/api/games/:gameId/announcement-channel', async (req, res) => {
 
     if (announcementChannelId !== undefined) {
       game.announcementChannelId = announcementChannelId;
-    }
-    if (announcementWebhookUrl !== undefined) {
-      game.announcementWebhookUrl = announcementWebhookUrl;
     }
     
     await game.save();
@@ -1721,6 +1702,95 @@ app.post("/api/cache/clear-all", (req, res) => {
     invalidatedEntries: invalidatedCount,
     remainingCacheSize: boardQueue.getStats().cacheSize
   });
+});
+
+// Game state management endpoints
+app.post('/api/games/:gameId/official-start', async (req, res) => {
+  try {
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (game.status !== 'active') {
+      return res.status(400).json({ error: 'Game must be active to officially start' });
+    }
+
+    if (game.isOfficiallyStarted) {
+      return res.status(400).json({ error: 'Game is already officially started' });
+    }
+
+    game.isOfficiallyStarted = true;
+    await game.save();
+
+    // Invalidate cache to reflect game state change
+    boardQueue.invalidateGameCache(req.params.gameId);
+
+    res.json({ 
+      success: true, 
+      message: 'Game officially started - teams can now roll', 
+      game 
+    });
+  } catch (error) {
+    console.error('Error officially starting game:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/games/:gameId/pause', async (req, res) => {
+  try {
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (game.status !== 'active') {
+      return res.status(400).json({ error: 'Only active games can be paused' });
+    }
+
+    game.isPaused = true;
+    await game.save();
+
+    // Invalidate cache to reflect game state change
+    boardQueue.invalidateGameCache(req.params.gameId);
+
+    res.json({ 
+      success: true, 
+      message: 'Game paused - teams cannot roll until resumed', 
+      game 
+    });
+  } catch (error) {
+    console.error('Error pausing game:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/games/:gameId/resume', async (req, res) => {
+  try {
+    const game = await Game.findOne({ gameId: req.params.gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    if (game.status !== 'active') {
+      return res.status(400).json({ error: 'Only active games can be resumed' });
+    }
+
+    game.isPaused = false;
+    await game.save();
+
+    // Invalidate cache to reflect game state change
+    boardQueue.invalidateGameCache(req.params.gameId);
+
+    res.json({ 
+      success: true, 
+      message: 'Game resumed - teams can now roll again', 
+      game 
+    });
+  } catch (error) {
+    console.error('Error resuming game:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Validation functions for tile tasks and images
