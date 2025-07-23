@@ -130,12 +130,7 @@ export default {
       if (gameParams?.moderatorRoleId) {
         const modRole = await interaction.guild.roles.fetch(gameParams.moderatorRoleId);
         if (modRole) {
-          onlineModerators = modRole.members.filter(member => 
-            !member.user.bot && // Exclude bots
-            (member.presence?.status === 'online' || 
-             member.presence?.status === 'idle' ||
-             member.presence?.status === 'dnd')
-          );
+          onlineModerators = modRole.members.filter(member => !member.user.bot && member.presence?.status === 'online');
         }
       }
       console.log('Online moderators:', onlineModerators.map(m => m.user.tag));
