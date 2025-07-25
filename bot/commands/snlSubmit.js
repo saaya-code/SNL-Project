@@ -191,8 +191,11 @@ export default {
                 .addFields(
                   { name: 'Position', value: `Tile ${activeTeam.currentPosition}`, inline: true },
                   { name: 'Reason', value: 'No moderators online', inline: true },
-                  { name: 'Status', value: activeTeam.currentPosition === 100 ? 'Game Complete' : 'Can continue rolling', inline: true }
+                  { name: 'Status', value: activeTeam.currentPosition === 100 ? 'Game Complete' : 'Can continue rolling', inline: true },
+                  activeTeam.currentPosition != 100 ? { name: 'Description', value: description || 'No description provided', inline: true } : {}
                 )
+                .setImage(screenshot.url)
+                .setFooter({ text: `Team ID: ${activeTeam.teamId} | Game ID: ${activeGame.gameId}` })
                 .setColor(activeTeam.currentPosition === 100 ? '#FFD700' : '#FFA500')
                 .setTimestamp();
 
@@ -334,8 +337,11 @@ export default {
               .setDescription(`**Team:** ${activeTeam.teamName}\n**Position:** Tile ${activeTeam.currentPosition}\n**Game:** ${activeGame.name}`)
               .addFields(
                 { name: 'Review Location', value: `Check ${submitChannel} for approval buttons`, inline: false },
-                { name: 'Submitted By', value: `${interaction.user.displayName}`, inline: true }
+                { name: 'Submitted By', value: `${interaction.user.displayName}`, inline: true },
+                { name: 'Description', value: description || 'No description provided', inline: true }
               )
+              .setImage(screenshot.url)
+              .setFooter({ text: `Team ID: ${activeTeam.teamId} | Game ID: ${activeGame.gameId}` })
               .setColor(0xffa500) // Orange color for notifications
               .setTimestamp();
 
