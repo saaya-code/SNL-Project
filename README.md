@@ -1,7 +1,5 @@
 # 🐍🪜--- [Features](#features)
-- [Project Structure](#project-structure)tures)
-- [Project Structure](#project-structure)tures)
-- [Project Structure](#project-structure)adders) Discord Game Bot
+- [Project Structure](#project-structure))
 
 A comprehensive Discord bot system for playing Snakes & Ladders games with teams, featuring a web dashboard for game management and administration.
 
